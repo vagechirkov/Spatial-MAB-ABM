@@ -1,4 +1,6 @@
 import itertools
+import warnings
+
 import numpy as np
 from sklearn.gaussian_process.kernels import RBF
 import matplotlib.pyplot as plt
@@ -111,6 +113,48 @@ def check_correlations(parent, children, corr_parent, corr_children, tol=0.05):
             return False
 
     return True
+
+
+def sample_children_with_corr(
+        rng: np.random.Generator,
+        n_children: int,
+        length_scale: float,
+        rho_parent_child: float,
+        rho_child_child: float,
+        tol: float = 0.10,
+        max_tries: int = 50,
+):
+    """
+    Draw (parent, children) reward maps until every pair of children
+    correlates with |corr - rho_child_child| ≤ tol.
+
+    The parent’s correlation is *not* checked (specification).
+    """
+    for _ in range(max_tries):
+        parent, children = make_parent_and_children_cholesky2(
+            rng=rng,
+            grid_size=11,
+            n_children=n_children,
+            length_scale=length_scale,
+            corr_parent=rho_parent_child,
+            corr_children=rho_child_child,
+        )
+
+        # pair-wise child correlations
+        flats = [c.ravel() for c in children]
+        C = np.corrcoef(flats)
+        ok = np.all(
+            np.abs(C[np.triu_indices(n_children, k=1)] - rho_child_child) <= tol
+        )
+        if ok:
+            return _min_max(parent), [_min_max(c) for c in children]
+
+    warnings.warn(
+        "Could not sample child maps with desired correlations within "
+        f"{max_tries} attempts (tol={tol}). Using the last draw."
+    )
+
+    return _min_max(parent), [_min_max(c) for c in children]
 
 
 def make_parent_and_children_corr(
