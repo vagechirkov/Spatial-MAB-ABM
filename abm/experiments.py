@@ -40,13 +40,28 @@ def analyze_and_log_heatmaps(
         reward_matrix.append(reward_row)
         diff_matrix.append(diff_row)
 
+    param_matrix = np.array(param_matrix)
+    reward_matrix = np.array(reward_matrix)
+    diff_matrix = np.array(diff_matrix)
+
+    # Find the homogeneous rewards (diagonal)
+    diag_values = np.diag(reward_matrix)
+    # Build a matrix to subtract from every cell: diag_matrix[i, j] = diag_values[j]
+    diag_matrix = np.zeros_like(reward_matrix)
+    for i in range(len(mutant_values)):
+        for j in range(len(resident_values)):
+            # Use resident axis for diagonal subtraction
+            if j < len(diag_values):
+                diag_matrix[i, j] = diag_values[j]
+    reward_matrix_minus_diag = reward_matrix - diag_matrix
+
     # Plot & log all heatmaps
     def wandb_log_heatmap(matrix, title, xvals, yvals, key):
         plt.figure(figsize=(6, 5))
         plt.imshow(matrix, aspect="auto", origin="lower")
         plt.colorbar(label=title)
-        plt.xticks(range(len(xvals)), xvals)
-        plt.yticks(range(len(yvals)), yvals)
+        plt.xticks(range(len(xvals)), np.round(xvals, 2))
+        plt.yticks(range(len(yvals)), np.round(yvals, 2))
         plt.xlabel("Resident Value")
         plt.ylabel("Mutant Value")
         plt.title(title)
@@ -56,17 +71,25 @@ def analyze_and_log_heatmaps(
 
     wandb_log_heatmap(
         param_matrix,
-        "Avg Cumulative Reward",
+        "Avg Cumulative Reward (norm)",
         resident_values,
         mutant_values,
         "reward_heatmap",
     )
     wandb_log_heatmap(
         diff_matrix,
-        "Resident-Mutant Reward Diff",
+        "Resident-Mutant Reward Diff (norm)",
         resident_values,
         mutant_values,
         "diff_heatmap",
+    )
+
+    wandb_log_heatmap(
+        reward_matrix_minus_diag,
+        "Reward minus Homogeneous (norm)",
+        resident_values,
+        mutant_values,
+        "reward_minus_diag_heatmap",
     )
 
     # run.log(
@@ -115,6 +138,7 @@ def effect_of_heterogeneity(
     config_info["n_mutants"] = n_mutants
     config_info["mutant_param"] = parameter
     config_info["n_iterations"] = n_iterations
+
     run = wandb.init(
         project="effect_of_heterogeneity",
         name=experiment_name + "-" + str(uuid.uuid4())[:8],
@@ -142,13 +166,16 @@ def effect_of_heterogeneity(
 
 
 if __name__ == "__main__":
-    tau_values = tuple(np.array(range(1, 10, 1)) / 100)
-    effect_of_heterogeneity(
-        experiment_name="1-tau-mutant",
-        mutant_value=tau_values,
-        resident_value=tau_values,
-        n_mutants=1,
-        n_seeds=200,
-        n_iterations=1,
-        n=4
-    )
+    # np.linspace(0.01, 0.06, 5)
+    tau_values = (0.01, 0.02, 0.03, 0.04, 0.05, 0.06)
+    for n_agents in (4, 8):
+        for n_mutants in (1, 2):
+            effect_of_heterogeneity(
+                experiment_name=f"{n_mutants}-tau-mutant_{n_agents}-agents",
+                mutant_value=tau_values,
+                resident_value=tau_values,
+                n_mutants=n_mutants,
+                n_seeds=200,
+                n_iterations=100,
+                n=n_agents
+            )
