@@ -103,7 +103,7 @@ class SocialGPModel(mesa.Model):
             beta_private=beta_private,
             beta_social=beta_social,
             tau=tau,
-            alpha=alpha,
+            alpha=alpha
         )
 
         self.datacollector = DataCollector(
@@ -115,6 +115,7 @@ class SocialGPModel(mesa.Model):
                 "choice": lambda a: a.last_choice,
                 "reward": lambda a: a.last_reward,
                 "cumulative_reward": lambda a: a.total_reward,
+                "individual_tau_value": lambda a: a.tau,
             },
         )
 
@@ -130,16 +131,16 @@ if __name__ == "__main__":
 
     param_grid = {
         "n": [4],
-        "model_type": ["SG"],  #
+        "model_type": ["SG"], # , "VS"
         "length_scale_private": [1.11],
-        "length_scale_social":  [1.11],
+        "length_scale_social":  [4],
         "observation_noise_private": [0.0001],
-        "observation_noise_social":  [0.0001, 0.0001 + 3, 0.0001 + 12.55, 20],
+        "observation_noise_social":  [3],  # , 20 , 0.0001 + 3  # 3, 50, 100, 200, 500
         "beta_private":  [0.33],
         "beta_social":   [0.33],
-        "tau": [0.03],
-        "alpha": [0.2],
-        "seed": list(range(200))
+        "tau": [[0.03, 0.03, 0.03, 0.05]],
+        "alpha": [0.5],
+        "seed": list(range(10))
     }
 
     batch_results = mesa.batch_run(
@@ -147,17 +148,19 @@ if __name__ == "__main__":
         parameters=param_grid,
         iterations=1,
         max_steps=15,
-        number_processes=8,
-        data_collection_period=1,
+        number_processes=None,
+        data_collection_period=-1,
         display_progress=True,
     )
 
     batch_results = pd.DataFrame(batch_results)
-    batch_results.dropna(inplace=True)
-    sns.lineplot(batch_results,
+    # batch_results.dropna(inplace=True)
+    #mask = (((batch_results["model_type"] == "SG") & (batch_results["observation_noise_social"] > 0.0001)) |
+    #        (batch_results["model_type"] == "VS") & (batch_results["observation_noise_social"]) <  12)
+    sns.lineplot(batch_results, # [mask],
                  x="Step",
                  y="reward",
-                 hue="observation_noise_social" # "model_type"
+                 hue="observation_noise_social"  # "observation_noise_social" # "model_type"
                  )
     plt.show()
 
