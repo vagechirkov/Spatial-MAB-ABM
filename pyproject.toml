@@ -9,7 +9,9 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.12"
+jupyterlab = "^4.4.3"
 mesa = {extras = ["all"], version = "^3.2.0"}
+sbi = "^0.24.0"
 wandb = {extras = ["media", "sweeps"], version = "^0.20.1"}
 
 

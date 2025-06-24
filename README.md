@@ -25,6 +25,12 @@ poetry add "wandb[media,sweeps]"
 poetry add --group dev pytest ruff
 ```
 
+If import issue occurs
+
+```bash
+poetry update
+```
+
 Install dependencies (if the project already exists)
 
 ```bash
