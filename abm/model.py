@@ -128,6 +128,61 @@ class SocialGPModel(mesa.Model):
         self.datacollector.collect(self)
 
 
+class SocialGPModelSBI(mesa.Model):
+    def __init__(
+            self,
+            child_maps,
+            rng = None,
+            n: int = 4,
+            grid_size: int = 11,
+            length_scale: float = 1.11,
+            observation_noise_private: float = 0.1,
+            observation_noise_social: float = 0.1,
+            beta: float = 0.33,
+            tau: float = 0.03
+    ):
+        super().__init__(rng=rng)
+
+        self.num_agents = n
+        self.grid_size = grid_size
+        self.model_type = "SG"
+        self.attention_budget = 4
+
+        # generate network
+        G = nx.complete_graph(n)
+        self.grid = Network(G, random=self.random)
+
+        SocialGPAgent.create_agents(
+            self,
+            self.num_agents,
+            cell=self.rng.choice(
+                self.grid.all_cells, replace=False, size=self.num_agents
+            ),
+            reward_environment=self.rng.choice(
+                child_maps, replace=False, size=self.num_agents
+            ),
+            length_scale_private=length_scale,
+            length_scale_social=length_scale,
+            observation_noise_private=observation_noise_private,
+            observation_noise_social=observation_noise_social,
+            beta_private=beta,
+            beta_social=beta,
+            tau=tau,
+            alpha=None
+        )
+
+        self.datacollector = DataCollector(
+            model_reporters={
+                "avg_cumulative_reward": lambda m: np.mean([a.total_reward for a in m.grid.agents]),
+                "avg_reward": lambda m: np.mean([a.last_reward for a in m.grid.agents])
+            },
+        )
+
+    def step(self):
+        self.agents.shuffle_do("step")
+        self.datacollector.collect(self)
+
+
 if __name__ == "__main__":
     import seaborn as sns
     import matplotlib.pyplot as plt
