@@ -116,6 +116,8 @@ class SocialGPModel(mesa.Model):
                 "reward": lambda a: a.last_reward,
                 "cumulative_reward": lambda a: a.total_reward,
                 "individual_tau_value": lambda a: a.tau,
+                "individual_beta_private_value": lambda a: a.beta_private,
+                "individual_length_scale_private_value": lambda a: a.length_scale_private,
             },
         )
 

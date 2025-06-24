@@ -168,25 +168,60 @@ def effect_of_heterogeneity(
     batch_results = pd.DataFrame(batch_results)
 
     analyze_and_log_heatmaps(
-        batch_results, mutant_value, resident_value, max_steps, run, param_key="tau"
+        batch_results, mutant_value, resident_value, max_steps, run, param_key=parameter
     )
 
     run.finish()
 
 
-if __name__ == "__main__":
+def exp_heterogeneity_tau():
     # np.linspace(0.01, 0.06, 5)
     tau_values = (0.01, 0.02, 0.03, 0.04, 0.05, 0.06)
-    # for n_agents in (4, 8):
-    #     for n_mutants in (1, 2):
-    n_agents = 4
+    for n_agents in (4, 8):
+        for n_mutants in (1, 2):
+            effect_of_heterogeneity(
+                experiment_name=f"{n_mutants}-tau-mutant_{n_agents}-agents",
+                mutant_value=tau_values,
+                resident_value=tau_values,
+                n_mutants=n_mutants,
+                n_seeds=20,
+                n_iterations=10,
+                n=n_agents
+            )
+
+
+def exp_heterogeneity_beta():
+    beta_values = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6)
     n_mutants = 1
+    n_agents = 4
+    param_key = "beta_private"
     effect_of_heterogeneity(
-        experiment_name=f"{n_mutants}-tau-mutant_{n_agents}-agents",
-        mutant_value=tau_values,
-        resident_value=tau_values,
+        experiment_name=f"{n_mutants}-{param_key}-mutant_{n_agents}-agents",
+        parameter=param_key,
+        mutant_value=beta_values,
+        resident_value=beta_values,
         n_mutants=n_mutants,
         n_seeds=20,
         n_iterations=10,
         n=n_agents
     )
+
+
+def exp_heterogeneity_length_scale_private():
+    beta_values = (0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5, 2.75, 3)
+    n_mutants = 1
+    n_agents = 4
+    param_key = "length_scale_private"
+    effect_of_heterogeneity(
+        experiment_name=f"{n_mutants}-{param_key}-mutant_{n_agents}-agents",
+        parameter=param_key,
+        mutant_value=beta_values,
+        resident_value=beta_values,
+        n_mutants=n_mutants,
+        n_seeds=40,
+        n_iterations=10,
+        n=n_agents
+    )
+
+if __name__ == "__main__":
+    exp_heterogeneity_length_scale_private()
