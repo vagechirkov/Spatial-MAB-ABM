@@ -72,6 +72,8 @@ class SocialGPModel(mesa.Model):
         self.network_type = network_type
         self.gamma_pa = gamma_pa
 
+        rho_parent_child = rho_child_child
+
         # generate reward maps
         _, child_maps = sample_children_with_corr(
             rng=self.rng,

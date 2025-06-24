@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import wandb
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from model import SocialGPModel
 
@@ -223,5 +224,109 @@ def exp_heterogeneity_length_scale_private():
         n=n_agents
     )
 
+
+
+def plot_heatmap_cumulative_score(
+    df,
+    run,
+    score_column="cumulative_reward",
+    observation_noise_private=0.0001,
+    max_steps=15,
+    title="Cumulative Reward",
+):
+    df['observation_noise_social_factor'] = df["observation_noise_social"] / observation_noise_private
+    agg = (
+        df.groupby(["rho_child_child", "observation_noise_social_factor"])[score_column]
+        .mean()
+        .unstack()
+    ) * 100
+
+    plt.figure(figsize=(8, 6))
+    im = plt.imshow(
+        agg.values,
+        origin="lower",
+        aspect="auto",
+    )
+    plt.colorbar(im, label="Cumulative Reward")
+    plt.xticks(range(len(agg.columns)), [f"{v:.2g}" for v in agg.columns])
+    plt.yticks(range(len(agg.index)), [f"{v:.2f}" for v in agg.index])
+    plt.ylabel("rho_child_child")
+    plt.xlabel("observation_noise_social_factor")
+    plt.title(title)
+    plt.tight_layout()
+    run.log({"cumulative_reward_heatmap": wandb.Image(plt)})
+    plt.close()
+
+
+def exp_obsnoise_vs_rho(
+    n_agents=4,
+    n_seeds=200,
+    n_iterations=10,
+    max_steps=15,
+    observation_noise_private=0.0001,
+    observation_noise_social_rel_factors=(1.0, 2.0, 5.0, 10.0, 100, 1000, 10_000, 20_000, 30_000, 100_000),
+    rho_child_child_values=(0.4, 0.6, 0.8),
+    **kwargs,
+):
+    # Build value grids
+    obs_noise_social_values = [
+        observation_noise_private * f for f in observation_noise_social_rel_factors
+    ]
+
+    params = dict(
+        model_type="SG",
+        n=n_agents,
+        length_scale_private=1.11,
+        observation_noise_private=observation_noise_private,
+        observation_noise_social=obs_noise_social_values,
+        rho_child_child=rho_child_child_values,
+        beta_private=0.33,
+        tau=0.03,
+        seed=list(range(n_seeds)),
+    )
+    params.update(kwargs)
+
+    # wandb setup
+    wandb.login()
+    config_info = dict(
+        n_seeds=n_seeds,
+        n_runs=n_seeds * n_iterations,
+        **params
+    )
+    run = wandb.init(
+        project="effect_of_obsnoise_vs_rho",
+        name=f"obsnoise_vs_rho_{uuid.uuid4().hex[:6]}",
+        config=config_info,
+        dir=os.getcwd(),
+    )
+
+    batch_results = mesa.batch_run(
+        SocialGPModel,
+        parameters=params,
+        iterations=n_iterations,
+        max_steps=max_steps,
+        number_processes=None,
+        data_collection_period=-1,
+        display_progress=True,
+    )
+    batch_results = pd.DataFrame(batch_results)
+    # plot_heatmap_cumulative_score(batch_results, run, observation_noise_private=observation_noise_private)
+    plt.figure(figsize=(12, 6))
+    sns.catplot(
+        data=batch_results,
+        kind="point",
+        hue="rho_child_child",
+        y="cumulative_reward",
+        x="observation_noise_social",
+        dodge=0.3,
+        linestyles="",
+        aspect=1.3,
+    )
+    run.log({"cumulative_reward_catplot": wandb.Image(plt)})
+    plt.close()
+
+    run.finish()
+
+
 if __name__ == "__main__":
-    exp_heterogeneity_length_scale_private()
+    exp_obsnoise_vs_rho(rho_child_child_values=(0.4, 0.6, 0.8))
