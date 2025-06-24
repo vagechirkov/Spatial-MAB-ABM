@@ -13,8 +13,8 @@ from model import SocialGPModel
 def analyze_and_log_heatmaps(
     df, mutant_values, resident_values, max_steps, run, param_key="tau"
 ):
-    param_matrix = []
-    reward_matrix = []
+    total_avg_reward_matrix = []
+    residents_reward_matrix = []
     diff_matrix = []
 
     df["mutant_param"] = df[param_key].apply(lambda p: p[0])
@@ -36,24 +36,24 @@ def analyze_and_log_heatmaps(
             param_matrix_row.append(total_mean / norm)
             reward_row.append(resident_mean / norm)
             diff_row.append((resident_mean - mutant_mean) / norm)
-        param_matrix.append(param_matrix_row)
-        reward_matrix.append(reward_row)
+        total_avg_reward_matrix.append(param_matrix_row)
+        residents_reward_matrix.append(reward_row)
         diff_matrix.append(diff_row)
 
-    param_matrix = np.array(param_matrix)
-    reward_matrix = np.array(reward_matrix)
+    total_avg_reward_matrix = np.array(total_avg_reward_matrix)
+    residents_reward_matrix = np.array(residents_reward_matrix)
     diff_matrix = np.array(diff_matrix)
 
     # Find the homogeneous rewards (diagonal)
-    diag_values = np.diag(reward_matrix)
+    diag_values = np.diag(total_avg_reward_matrix)
     # Build a matrix to subtract from every cell: diag_matrix[i, j] = diag_values[j]
-    diag_matrix = np.zeros_like(reward_matrix)
+    diag_matrix = np.zeros_like(total_avg_reward_matrix)
     for i in range(len(mutant_values)):
         for j in range(len(resident_values)):
             # Use resident axis for diagonal subtraction
             if j < len(diag_values):
                 diag_matrix[i, j] = diag_values[j]
-    reward_matrix_minus_diag = reward_matrix - diag_matrix
+    reward_matrix_minus_diag = total_avg_reward_matrix - diag_matrix
 
     # Plot & log all heatmaps
     def wandb_log_heatmap(matrix, title, xvals, yvals, key):
@@ -70,12 +70,21 @@ def analyze_and_log_heatmaps(
         plt.close()
 
     wandb_log_heatmap(
-        param_matrix,
+        total_avg_reward_matrix,
         "Avg Cumulative Reward (norm)",
         resident_values,
         mutant_values,
-        "reward_heatmap",
+        "total_reward_heatmap",
     )
+
+    wandb_log_heatmap(
+        residents_reward_matrix,
+        "Residents Cumulative Reward (norm)",
+        resident_values,
+        mutant_values,
+        "residents_reward_heatmap",
+    )
+
     wandb_log_heatmap(
         diff_matrix,
         "Resident-Mutant Reward Diff (norm)",
@@ -168,14 +177,16 @@ def effect_of_heterogeneity(
 if __name__ == "__main__":
     # np.linspace(0.01, 0.06, 5)
     tau_values = (0.01, 0.02, 0.03, 0.04, 0.05, 0.06)
-    for n_agents in (4, 8):
-        for n_mutants in (1, 2):
-            effect_of_heterogeneity(
-                experiment_name=f"{n_mutants}-tau-mutant_{n_agents}-agents",
-                mutant_value=tau_values,
-                resident_value=tau_values,
-                n_mutants=n_mutants,
-                n_seeds=200,
-                n_iterations=100,
-                n=n_agents
-            )
+    # for n_agents in (4, 8):
+    #     for n_mutants in (1, 2):
+    n_agents = 4
+    n_mutants = 1
+    effect_of_heterogeneity(
+        experiment_name=f"{n_mutants}-tau-mutant_{n_agents}-agents",
+        mutant_value=tau_values,
+        resident_value=tau_values,
+        n_mutants=n_mutants,
+        n_seeds=20,
+        n_iterations=10,
+        n=n_agents
+    )
