@@ -19,7 +19,7 @@ def _min_max(arr):
 
 
 def make_parent_and_children_cholesky(
-    rng,
+    rng=None,
     grid_size=11,
     n_children=4,
     length_scale=2.0,
@@ -49,7 +49,10 @@ def make_parent_and_children_cholesky(
         )
 
     # Draw (n_total) independent samples  W ~ N(0, Sigma)
-    W = rng.multivariate_normal(np.zeros(M), Sigma, size=n_total)  # (n_total, M)
+    if rng is None:
+        W = np.radom.multivariate_normal(np.zeros(M), Sigma, size=n_total)
+    else:
+        W = rng.multivariate_normal(np.zeros(M), Sigma, size=n_total)  # (n_total, M)
 
     # Mix them with a Cholesky factor
     L = np.linalg.cholesky(R)  # (n_total, n_total)
@@ -92,7 +95,10 @@ def make_parent_and_children_cholesky2(
         )
 
     LR = np.linalg.cholesky(R)  # (n_total, n_total)
-    z = rng.standard_normal((n_total, M))  # (n_total, M)
+    if rng is None:
+        z = np.random.standard_normal((n_total, M))  # (n_total, M)
+    else:
+        z = rng.standard_normal((n_total, M))  # (n_total, M)
     Y = (LR @ z) @ LSigma.T  # same shape
 
     parent = Y[0].reshape(grid_size, grid_size)
@@ -116,7 +122,7 @@ def check_correlations(parent, children, corr_parent, corr_children, tol=0.05):
 
 
 def sample_children_with_corr(
-        rng: np.random.Generator,
+        rng: np.random.Generator | None,
         n_children: int,
         length_scale: float,
         rho_parent_child: float,

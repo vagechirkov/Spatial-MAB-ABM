@@ -28,6 +28,7 @@ poetry add --group dev pytest ruff
 If import issue occurs
 
 ```bash
+poetry run pip uninstall sbi pymc pytensor numpy -y
 poetry update
 ```
 
