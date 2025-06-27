@@ -314,3 +314,4 @@ cython_debug/
 abm/data
 abm/wandb
 abm/sbi-logs
+abm/sbi-simulations

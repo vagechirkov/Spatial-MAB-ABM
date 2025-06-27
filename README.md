@@ -37,3 +37,9 @@ Install dependencies (if the project already exists)
 ```bash
 poetry install
 ```
+
+Run Jupyter Lab
+
+```bash
+poetry run jupyter lab
+```

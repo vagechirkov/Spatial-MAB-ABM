@@ -72,13 +72,13 @@ if __name__ == "__main__":
     prior = BoxUniform(low=lower_bound, high=upper_bound)
 
     theta = prior.sample((args.n_samples,))
+    today_str = datetime.datetime.now().strftime("%Y%m%d")
+    np.save(f"simulation_outputs_{today_str}_{args.n_samples}_theta.npy", theta.numpy())
 
     start_time = time.time()
     simulation_outputs = parallel_simulate(theta)
     elapsed = time.time() - start_time
     print(f"Execution took {elapsed:.2f} seconds")
 
-    today_str = datetime.datetime.now().strftime("%Y%m%d")
     fname = f"simulation_outputs_{today_str}_{args.n_samples}.npy"
-
     np.save(fname, simulation_outputs)
