@@ -64,8 +64,8 @@ if __name__ == "__main__":
                         type=int, default=10, help="Number of samples to draw from the prior")
     args = parser.parse_args()
 
-    lb = [0.5, 0.0001, 0.05, 0.01]
-    up = [3.0, 20, 1.0, 0.05]
+    lb = [0.1, 0.0001, 0.01, 0.01]
+    up = [5.0, 40, 2.0, 0.1]
     limits = list(zip(lb, up))
     lower_bound = torch.as_tensor(lb)
     upper_bound = torch.as_tensor(up)
@@ -73,12 +73,12 @@ if __name__ == "__main__":
 
     theta = prior.sample((args.n_samples,))
     today_str = datetime.datetime.now().strftime("%Y%m%d")
-    np.save(f"simulation_outputs_{today_str}_{args.n_samples}_theta.npy", theta.numpy())
+    np.save(f"simulation_outputs_broad_prior_{today_str}_{args.n_samples}_theta.npy", theta.numpy())
 
     start_time = time.time()
     simulation_outputs = parallel_simulate(theta)
     elapsed = time.time() - start_time
     print(f"Execution took {elapsed:.2f} seconds")
 
-    fname = f"simulation_outputs_{today_str}_{args.n_samples}.npy"
+    fname = f"simulation_outputs_broad_prior_{today_str}_{args.n_samples}.npy"
     np.save(fname, simulation_outputs)
