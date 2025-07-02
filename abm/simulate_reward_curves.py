@@ -18,7 +18,7 @@ def simulate(parameters):
         'private_step_distance',
         'social_step_distance',
         'private_landscape_reconstruction_mse',
-        'social_landscape_reconstruction_mse'
+        # 'social_landscape_reconstruction_mse'
     ]
     repetitions = []
     for _ in range(5):
@@ -69,7 +69,7 @@ if __name__ == "__main__":
     # poetry run python simulate_reward_curves.py --n_samples 10_000
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_samples",
-                        type=int, default=1_000, help="Number of samples to draw from the prior")
+                        type=int, default=100, help="Number of samples to draw from the prior")
     args = parser.parse_args()
 
     lb = [0.1, 0.0001, 0.01, 0.01]

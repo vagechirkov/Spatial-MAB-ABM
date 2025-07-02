@@ -169,7 +169,6 @@ class SocialGPAgent(CellAgent):
         # memory buffers
         self.X_observations: list[tuple[int, int]] = []
         self.y_observations: list[float] = []
-        self.X_social_observations: list[list[tuple[int, int]]] = []
 
         # prediction grid
         self.meshgrid = np.meshgrid(
@@ -197,12 +196,16 @@ class SocialGPAgent(CellAgent):
 
     @property
     def social_step_euclidean_distance(self) -> float:
-        if len(self.X_social_observations) < 1:
+        X_soc, _ = self._gather_social_info()
+        if len(X_soc) < 1:
             return 0
-        if len(self.X_social_observations[0]) < 2:
+        if len(X_soc[0]) < 1:
             return 0
 
-        msds = [step_distance(x) for x in self.X_social_observations]
+        msds = [
+            step_distance(np.array([_x_soc[-1], self.X_observations[-1]]))
+            for _x_soc in X_soc
+        ]
         return float(np.mean(msds))
 
     @property
@@ -256,7 +259,6 @@ class SocialGPAgent(CellAgent):
         y_priv = np.array(self.y_observations).reshape(-1, 1)
 
         X_soc, y_soc = self._gather_social_info()
-        self.X_social_observations = X_soc.copy()
 
         if self.model.model_type == "SG":
             logits = social_generalization(

@@ -173,8 +173,24 @@ class SocialGPModelSBI(mesa.Model):
 
         self.datacollector = DataCollector(
             model_reporters={
-                "avg_cumulative_reward": lambda m: np.mean([a.total_reward for a in m.grid.agents]),
-                "avg_reward": lambda m: np.mean([a.last_reward for a in m.grid.agents])
+                "avg_cumulative_reward": lambda m: np.mean(
+                    [a.total_reward for a in m.grid.agents]
+                ),
+                "avg_reward": lambda m: np.mean(
+                    [a.last_reward for a in m.grid.agents]
+                ),
+                "private_step_distance": lambda m: np.mean(
+                    [a.private_step_euclidean_distance for a in m.grid.agents]
+                ),
+                "social_step_distance": lambda m: np.mean(
+                    [a.social_step_euclidean_distance for a in m.grid.agents]
+                ),
+                "private_landscape_reconstruction_mse": lambda m: np.mean(
+                    [a.private_landscape_reconstruction_mse for a in m.grid.agents]
+                ),
+                # "social_landscape_reconstruction_mse": lambda m: np.mean(
+                #     [a.social_landscape_reconstruction_mse for a in m.grid.agents]
+                # ),
             },
         )
 
