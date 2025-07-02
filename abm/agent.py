@@ -5,6 +5,14 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF
 
 
+def step_distance(x):
+    if len(x) < 2:
+        return 0
+    choice = np.asarray(x[-1], dtype=float)
+    previous_choice = np.asarray(x[-2], dtype=float)
+    return float(np.linalg.norm(choice - previous_choice))
+
+
 def gp_base_generalization(
     X_obs: np.ndarray,
     y_obs: np.ndarray,
@@ -161,6 +169,7 @@ class SocialGPAgent(CellAgent):
         # memory buffers
         self.X_observations: list[tuple[int, int]] = []
         self.y_observations: list[float] = []
+        self.X_social_observations: list[list[tuple[int, int]]] = []
 
         # prediction grid
         self.meshgrid = np.meshgrid(
@@ -180,6 +189,45 @@ class SocialGPAgent(CellAgent):
     @property
     def total_reward(self) -> float:
         return np.sum(self.y_observations)
+
+    @property
+    def private_step_euclidean_distance(self) -> float:
+        x = self.X_observations
+        return step_distance(x)
+
+    @property
+    def social_step_euclidean_distance(self) -> float:
+        if len(self.X_social_observations) < 1:
+            return 0
+        if len(self.X_social_observations[0]) < 2:
+            return 0
+
+        msds = [step_distance(x) for x in self.X_social_observations]
+        return float(np.mean(msds))
+
+    @property
+    def private_landscape_reconstruction_mse(self) -> float:
+        if len(self.X_observations) < 1:
+            return 0
+        X_priv = np.array(self.X_observations)
+        y_priv = np.array(self.y_observations).reshape(-1, 1)
+        gp_mean_p, _ = gp_base_generalization(
+            X_priv,
+            y_priv,
+            self.meshgrid_flatten,
+            length_scale=2,
+            observation_noise=np.ones(len(X_priv)) * 1e-10,
+            rng=self.model.rng.__getstate__()
+            )
+        return float(np.square(self.reward_environment.T.ravel() - gp_mean_p).sum())
+
+    @property
+    def social_landscape_reconstruction_mse(self) -> float:
+        neighbours = list(self.model.grid[self.cell.coordinate].neighborhood)
+        mses = [self.private_landscape_reconstruction_mse] + [
+            n.agents[0].private_landscape_reconstruction_mse for n in neighbours
+        ]
+        return float(np.mean(mses))
 
     def _gather_social_info(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         neighbours = list(self.model.grid[self.cell.coordinate].neighborhood)
@@ -208,6 +256,7 @@ class SocialGPAgent(CellAgent):
         y_priv = np.array(self.y_observations).reshape(-1, 1)
 
         X_soc, y_soc = self._gather_social_info()
+        self.X_social_observations = X_soc.copy()
 
         if self.model.model_type == "SG":
             logits = social_generalization(

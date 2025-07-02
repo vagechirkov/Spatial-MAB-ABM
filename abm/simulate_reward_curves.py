@@ -2,19 +2,24 @@ import argparse
 import datetime
 import time
 
-import torch
-_ = torch.manual_seed(42)
-
-from sbi.utils import BoxUniform
-from joblib import Parallel, delayed
-
 import numpy as np
-
+import torch
+from joblib import Parallel, delayed
 from model import SocialGPModelSBI
 from rewards import sample_children_with_corr
+from sbi.utils import BoxUniform
+
+_ = torch.manual_seed(42)
 
 def simulate(parameters):
     rho_child_child = 0.6
+    columns = [
+        'avg_reward',
+        'private_step_distance',
+        'social_step_distance',
+        'private_landscape_reconstruction_mse',
+        'social_landscape_reconstruction_mse'
+    ]
     repetitions = []
     for _ in range(5):
         _, child_maps = sample_children_with_corr(
@@ -41,13 +46,16 @@ def simulate(parameters):
             for _ in range(15):
                 _model.step()
             results = _model.datacollector.get_model_vars_dataframe()
-            repetitions.append(results.loc[:, "avg_reward"].to_numpy())
+            repetitions.append(results.loc[:, columns].to_numpy())
 
     return np.mean(repetitions, axis=0)
 
 def parallel_simulate(theta):
     # Our simulator uses numpy, but prior samples are in PyTorch.
     theta_np = theta.numpy()
+
+    # for debugging
+    # simulate(theta_np[0, :])
 
     num_workers = -1  # Use all available CPUs
     simulation_outputs = Parallel(n_jobs=num_workers, verbose=0)(
@@ -61,7 +69,7 @@ if __name__ == "__main__":
     # poetry run python simulate_reward_curves.py --n_samples 10_000
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_samples",
-                        type=int, default=10, help="Number of samples to draw from the prior")
+                        type=int, default=1_000, help="Number of samples to draw from the prior")
     args = parser.parse_args()
 
     lb = [0.1, 0.0001, 0.01, 0.01]
