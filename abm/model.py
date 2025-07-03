@@ -179,14 +179,23 @@ class SocialGPModelSBI(mesa.Model):
                 "avg_reward": lambda m: np.mean(
                     [a.last_reward for a in m.grid.agents]
                 ),
-                "private_step_distance": lambda m: np.mean(
-                    [a.private_step_euclidean_distance for a in m.grid.agents]
+                "last_choice_distance_private": lambda m: np.mean(
+                    [a.last_choice_distance_private for a in m.grid.agents]
                 ),
-                "social_step_distance": lambda m: np.mean(
-                    [a.social_step_euclidean_distance for a in m.grid.agents]
+                "last_choice_distance_social": lambda m: np.mean(
+                    [a.last_choice_distance_social for a in m.grid.agents]
                 ),
-                "private_landscape_reconstruction_mse": lambda m: np.mean(
-                    [a.private_landscape_reconstruction_mse for a in m.grid.agents]
+                "nearest_choice_distance_private": lambda m: np.mean(
+                    [a.nearest_choice_distance_private for a in m.grid.agents]
+                ),
+                "avg_choice_distance_private": lambda m: np.mean(
+                    [a.avg_choice_distance_private for a in m.grid.agents]
+                ),
+                "nearest_choice_distance_social": lambda m: np.mean(
+                    [a.nearest_choice_distance_social for a in m.grid.agents]
+                ),
+                "avg_choice_distance_social": lambda m: np.mean(
+                    [a.avg_choice_distance_social for a in m.grid.agents]
                 ),
                 # "social_landscape_reconstruction_mse": lambda m: np.mean(
                 #     [a.social_landscape_reconstruction_mse for a in m.grid.agents]
