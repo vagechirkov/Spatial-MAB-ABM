@@ -2,15 +2,8 @@ from matplotlib import pyplot as plt
 
 
 def plot_summary(results):
-    columns = [
-        'avg_reward',
-        'private_step_distance',
-        'social_step_distance',
-        'private_landscape_reconstruction_mse',
-        # 'social_landscape_reconstruction_mse'
-    ]
-
-    fig, axes = plt.subplots(1, 4, figsize=(20, 5))  # 1 row, 5 columns
+    columns = results.columns
+    fig, axes = plt.subplots(1, len(columns), figsize=(4*len(columns), 5))  # 1 row, 5 columns
 
     for idx, col in enumerate(columns):
         axes[idx].plot(results[col])

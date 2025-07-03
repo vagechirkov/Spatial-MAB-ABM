@@ -14,14 +14,18 @@ _ = torch.manual_seed(42)
 def simulate(parameters):
     rho_child_child = 0.6
     columns = [
-        'avg_reward',
-        'private_step_distance',
-        'social_step_distance',
-        'private_landscape_reconstruction_mse',
+        "avg_reward",
+        "last_choice_distance_private",
+        "last_choice_distance_social",
+        "nearest_choice_distance_private",
+        "avg_choice_distance_private",
+        "nearest_choice_distance_social",
+        "avg_choice_distance_social"
+        # 'private_landscape_reconstruction_mse',
         # 'social_landscape_reconstruction_mse'
     ]
     repetitions = []
-    for _ in range(5):
+    for _ in range(8):  # 8 rounds with the same parameters
         _, child_maps = sample_children_with_corr(
             rng=None,
             n_children=4,
@@ -32,7 +36,7 @@ def simulate(parameters):
             max_tries=1000
         )
 
-        for _ in range(10):
+        for _ in range(1):  # environment is repeated only once
             _model = SocialGPModelSBI(
                 child_maps,
                 rng=None,

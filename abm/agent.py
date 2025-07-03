@@ -190,23 +190,52 @@ class SocialGPAgent(CellAgent):
         return np.sum(self.y_observations)
 
     @property
-    def private_step_euclidean_distance(self) -> float:
-        x = self.X_observations
-        return step_distance(x)
+    def last_choice_distance_private(self) -> float:
+        x = np.asarray(self.X_observations)
+        if len(x) < 2:
+            return 0.0
+        return float(np.linalg.norm(x[-1] - x[-2], axis=-1))
 
     @property
-    def social_step_euclidean_distance(self) -> float:
+    def last_choice_distance_social(self) -> float:
         X_soc, _ = self._gather_social_info()
-        if len(X_soc) < 1:
-            return 0
-        if len(X_soc[0]) < 1:
-            return 0
+        if len(X_soc) < 1 or len(X_soc[0]) < 1:
+            return 0.0
+        social_last_choices = np.array([_x_soc[-1] for _x_soc in X_soc])
+        cur = np.asarray(self.X_observations[-1])
+        return float(np.mean(np.linalg.norm(cur - social_last_choices, axis=-1)))
 
-        msds = [
-            step_distance(np.array([_x_soc[-1], self.X_observations[-1]]))
-            for _x_soc in X_soc
-        ]
-        return float(np.mean(msds))
+    @property
+    def nearest_choice_distance_private(self) -> float:
+        x = np.asarray(self.X_observations)
+        if len(x) < 2:
+            return 0.0
+        return float(np.min(np.linalg.norm(x[-1] - x[:-1], axis=-1)))
+
+    @property
+    def avg_choice_distance_private(self) -> float:
+        x = np.asarray(self.X_observations)
+        if len(x) < 2:
+            return 0.0
+        return float(np.mean(np.linalg.norm(x[-1] - x[:-1], axis=-1)))
+
+    @property
+    def nearest_choice_distance_social(self) -> float:
+        X_soc, _ = self._gather_social_info()
+        if len(X_soc) < 1 or len(X_soc[0]) < 1:
+            return 0.0
+        social_choices = np.vstack(X_soc)
+        cur = np.asarray(self.X_observations[-1])
+        return float(np.min(np.linalg.norm(cur - social_choices, axis=-1)))
+
+    @property
+    def avg_choice_distance_social(self) -> float:
+        X_soc, _ = self._gather_social_info()
+        if len(X_soc) < 1 or len(X_soc[0]) < 1:
+            return 0.0
+        social_choices = np.vstack(X_soc)
+        cur = np.asarray(self.X_observations[-1])
+        return float(np.mean(np.linalg.norm(cur - social_choices, axis=-1)))
 
     @property
     def private_landscape_reconstruction_mse(self) -> float:
