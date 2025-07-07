@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import scipy.optimize as opt
+from tqdm import tqdm
 
 from model import SocialGPModelReplication
 
@@ -48,7 +49,7 @@ def replicate_model_fitting():
     results = []
     param_names = ['length_scale', 'beta', 'tau', 'observation_noise_social']
 
-    for g in np.unique(data["group"]):
+    for g in tqdm(np.unique(data["group"])):
         for a in np.unique(data.loc[(data["group"] == g), "agent"]):
             repeated_optimizations = []
             test_nll = 0
@@ -87,7 +88,7 @@ def replicate_model_fitting():
             results.append(result)
 
     df_results = pd.DataFrame(results)
-    df_results.to_csv("replicate_fits.csv", index=False)
+    df_results.to_csv("./data/replicate_fits.csv", index=False)
 
 
 if __name__ == "__main__":
