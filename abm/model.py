@@ -82,7 +82,8 @@ class SocialGPModel(mesa.Model):
             rho_parent_child=rho_parent_child,
             rho_child_child=rho_child_child,
             tol=0.1,
-            max_tries=1000
+            max_tries=1000,
+            grid_size=grid_size
         )
 
         # generate network

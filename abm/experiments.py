@@ -328,5 +328,94 @@ def exp_obsnoise_vs_rho(
     run.finish()
 
 
+def exp_env_size(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
+    params = dict(
+        model_type=["AS", "SG"],
+        n=4,
+        length_scale_private=1.11,
+        observation_noise_private=0.0001,
+        observation_noise_social=2.0,
+        rho_child_child=0.6,
+        beta_private=0.33,
+        tau=0.03,
+        grid_size=(11, 13, 15, 17, 19, 21, 23, 25),
+        seed=list(range(n_seeds)),
+    )
+    params.update(kwargs)
+
+    # wandb setup
+    wandb.login()
+    config_info = dict(
+        n_seeds=n_seeds,
+        n_runs=n_seeds * n_iterations,
+        **params
+    )
+    run = wandb.init(
+        project="soc-MAB-ABM",
+        group="effect_of_env_size",
+        name=f"env_size_{uuid.uuid4().hex[:6]}",
+        config=config_info,
+        dir=os.getcwd(),
+    )
+
+    batch_results = mesa.batch_run(
+        SocialGPModel,
+        parameters=params,
+        iterations=n_iterations,
+        max_steps=max_steps,
+        number_processes=None,
+        data_collection_period=-1,
+        display_progress=True,
+    )
+    batch_results = pd.DataFrame(batch_results)
+
+    plt.figure(figsize=(12, 6))
+    sns.catplot(
+        data=batch_results,
+        kind="point",
+        hue="model_type",
+        y="cumulative_reward",
+        x="grid_size",
+        dodge=0.3,
+        linestyles="",
+        aspect=1.3,
+    )
+    run.log({"cumulative_reward_catplot": wandb.Image(plt)})
+    plt.close()
+
+    run.finish()
+
+
+
+
 if __name__ == "__main__":
-    exp_obsnoise_vs_rho(rho_child_child_values=(0.4, 0.6, 0.8))
+    # exp_obsnoise_vs_rho(rho_child_child_values=(0.4, 0.6, 0.8))
+    n_seeds = 200
+    n_iterations = 10
+    for max_steps in [15, 20, 25]:
+        exp_env_size(
+            n_seeds=n_seeds,
+            n_iterations=n_iterations,
+            max_steps=max_steps,
+            length_scale_private=2.4,
+            observation_noise_social=7.0,
+            beta_private=0.7,
+        )
+
+        exp_env_size(
+            n_seeds=n_seeds,
+            n_iterations=n_iterations,
+            max_steps=max_steps,
+            length_scale_private=1.5,
+            observation_noise_social=25.0,
+            beta_private=0.7,
+        )
+
+        exp_env_size(
+            n_seeds=n_seeds,
+            n_iterations=n_iterations,
+            max_steps=max_steps,
+            length_scale_private=1.5,
+            observation_noise_social=25.0,
+            beta_private=0.3,
+        )

@@ -129,6 +129,7 @@ def sample_children_with_corr(
         rho_child_child: float,
         tol: float = 0.10,
         max_tries: int = 50,
+        grid_size=11,
 ):
     """
     Draw (parent, children) reward maps until every pair of children
@@ -139,7 +140,7 @@ def sample_children_with_corr(
     for _ in range(max_tries):
         parent, children = make_parent_and_children_cholesky2(
             rng=rng,
-            grid_size=11,
+            grid_size=grid_size,
             n_children=n_children,
             length_scale=length_scale,
             corr_parent=rho_parent_child,

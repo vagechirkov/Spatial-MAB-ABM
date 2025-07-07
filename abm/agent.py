@@ -32,6 +32,21 @@ def gp_base_generalization(
     gpr.fit(X_obs, y_obs)
     return gpr.predict(X_predict, return_std=True)
 
+def asocial_generalization(
+        X_obs: np.ndarray,
+        y_obs: np.ndarray,
+        X_predict: np.ndarray,
+        length_scale: float,
+        observation_noise: float,
+        beta: float,
+        tau: float,
+        random_state,
+):
+    gp_mean, gp_std = gp_base_generalization(
+        X_obs, y_obs, X_predict, length_scale, np.ones(len(y_obs)) * observation_noise, random_state
+    )
+    value_ucb = gp_mean + beta * gp_std
+    return np.exp(value_ucb / tau)
 
 def social_generalization(
     X_obs_private: np.ndarray,
@@ -287,9 +302,8 @@ class SocialGPAgent(CellAgent):
         X_priv = np.array(self.X_observations)
         y_priv = np.array(self.y_observations).reshape(-1, 1)
 
-        X_soc, y_soc = self._gather_social_info()
-
         if self.model.model_type == "SG":
+            X_soc, y_soc = self._gather_social_info()
             logits = social_generalization(
                 X_priv,
                 y_priv,
@@ -304,6 +318,7 @@ class SocialGPAgent(CellAgent):
                 random_state=self.model.rng.__getstate__()
             )
         elif self.model.model_type == "VS":
+            X_soc, y_soc = self._gather_social_info()
             logits = value_shaping(
                 X_priv,
                 y_priv,
@@ -317,6 +332,17 @@ class SocialGPAgent(CellAgent):
                 beta_private=self.beta_private,
                 beta_social=self.beta_social,
                 alpha=self.alpha,
+                tau=self.tau,
+                random_state=self.model.rng.__getstate__()
+            )
+        elif self.model.model_type == "AS":
+            logits = asocial_generalization(
+                X_priv,
+                y_priv,
+                self.meshgrid_flatten,
+                length_scale=self.length_scale_private,
+                observation_noise=self.observation_noise_private,
+                beta=self.beta_private,
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__()
             )
