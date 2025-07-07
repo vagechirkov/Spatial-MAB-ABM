@@ -209,6 +209,89 @@ class SocialGPModelSBI(mesa.Model):
         self.datacollector.collect(self)
 
 
+class SocialGPModelReplication(mesa.Model):
+    def __init__(
+            self,
+            reward_map,
+            social_choices,
+            social_rewards,
+            model_type = "SG_fitting",
+            individual_choices = None | tuple[tuple[int, int]],
+            individual_rewards = None | tuple[float],
+            rng = None,
+            length_scale: float = 1.11,
+            observation_noise_private: float = 0.0001,
+            observation_noise_social: float = 0.1,
+            beta: float = 0.33,
+            tau: float = 0.03
+    ):
+        super().__init__(rng=rng)
+        self.social_choices = social_choices
+        self.social_rewards = social_rewards
+        self.individual_choices = individual_choices
+        self.individual_rewards = individual_rewards
+        self.model_type = model_type
+
+        self.num_agents = 1
+        G = nx.complete_graph(self.num_agents)
+        self.grid = Network(G, random=self.random)
+
+        if reward_map is None:
+            reward_map = np.zeros((11, 11))
+
+        SocialGPAgent.create_agents(
+            self,
+            self.num_agents,
+            cell=self.rng.choice(
+                self.grid.all_cells, replace=False, size=self.num_agents
+            ),
+            reward_environment=reward_map,
+            length_scale_private=length_scale,
+            length_scale_social=length_scale,
+            observation_noise_private=observation_noise_private,
+            observation_noise_social=observation_noise_social,
+            beta_private=beta,
+            beta_social=beta,
+            tau=tau,
+            alpha=None
+        )
+
+        self.datacollector = DataCollector(
+            model_reporters={
+                # "avg_cumulative_reward": lambda m: np.mean(
+                #     [a.total_reward for a in m.grid.agents]
+                # ),
+                # "avg_reward": lambda m: np.mean(
+                #     [a.last_reward for a in m.grid.agents]
+                # ),
+                # "last_choice_distance_private": lambda m: np.mean(
+                #     [a.last_choice_distance_private for a in m.grid.agents]
+                # ),
+                # "last_choice_distance_social": lambda m: np.mean(
+                #     [a.last_choice_distance_social for a in m.grid.agents]
+                # ),
+                # "nearest_choice_distance_private": lambda m: np.mean(
+                #     [a.nearest_choice_distance_private for a in m.grid.agents]
+                # ),
+                # "avg_choice_distance_private": lambda m: np.mean(
+                #     [a.avg_choice_distance_private for a in m.grid.agents]
+                # ),
+                # "nearest_choice_distance_social": lambda m: np.mean(
+                #     [a.nearest_choice_distance_social for a in m.grid.agents]
+                # ),
+                # "avg_choice_distance_social": lambda m: np.mean(
+                #     [a.avg_choice_distance_social for a in m.grid.agents]
+                # ),
+                "nll": lambda m: np.mean(
+                    [a.neg_log_likelihood for a in m.grid.agents]
+                ),
+            },
+        )
+
+    def step(self):
+        self.agents.shuffle_do("step")
+        self.datacollector.collect(self)
+
 if __name__ == "__main__":
     import seaborn as sns
     import matplotlib.pyplot as plt

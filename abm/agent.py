@@ -60,6 +60,7 @@ def social_generalization(
     beta: float,
     tau: float,
     random_state,
+    subtract_max_value: bool = False,
 ) -> np.ndarray:
     """Original SG model from Witt et al., 2024."""
     assert len(X_obs_private) > 0
@@ -76,6 +77,8 @@ def social_generalization(
         X_obs, y_obs, X_predict, length_scale, observation_noise, random_state
     )
     value_ucb = gp_mean + beta * gp_std
+    if subtract_max_value:
+        value_ucb -= np.max(value_ucb)
     return np.exp(value_ucb / tau)  # soft-max logits (unnormalised)
 
 
@@ -190,7 +193,9 @@ class SocialGPAgent(CellAgent):
             range(reward_environment.shape[0]), range(reward_environment.shape[1])
         )
         self.meshgrid_flatten = np.array(self.meshgrid, dtype=np.int32).reshape(2, -1).T
+        self.meshgrid_dict = {tuple(coord): i for i, coord in enumerate(self.meshgrid_flatten)}
         self.uniform_probs = np.ones(len(self.meshgrid_flatten)) / len(self.meshgrid_flatten)
+        self.policy = self.uniform_probs.copy()
 
     @property
     def last_choice(self) -> tuple[int, int]:
@@ -276,6 +281,12 @@ class SocialGPAgent(CellAgent):
         ]
         return float(np.mean(mses))
 
+    @property
+    def neg_log_likelihood(self) -> float:
+        if self.model.steps == 1:
+            return 0.0
+        return -np.log(self.policy[self.meshgrid_dict[self.last_choice]])
+
     def _gather_social_info(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         neighbours = list(self.model.grid[self.cell.coordinate].neighborhood)
         #TODO: more this to the network generation script
@@ -317,6 +328,23 @@ class SocialGPAgent(CellAgent):
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__()
             )
+        elif self.model.model_type == "SG_fitting":
+            X_soc = [s_c[:self.model.steps] for s_c in self.model.social_choices]
+            y_soc = [s_r[:self.model.steps].reshape(-1, 1) for s_r in self.model.social_rewards]
+            logits = social_generalization(
+                X_priv,
+                y_priv,
+                X_soc,
+                y_soc,
+                self.meshgrid_flatten,
+                length_scale=self.length_scale_private,
+                observation_noise_private=self.observation_noise_private,
+                observation_noise_social=self.observation_noise_social,
+                beta=self.beta_private,
+                tau=self.tau,
+                random_state=self.model.rng.__getstate__(),
+                subtract_max_value=True
+            )
         elif self.model.model_type == "VS":
             X_soc, y_soc = self._gather_social_info()
             logits = value_shaping(
@@ -351,13 +379,29 @@ class SocialGPAgent(CellAgent):
 
         # sample next arm
         probs = logits.ravel()
-        probs /= probs.sum() + 1e-12
-        idx = self.model.rng.choice(len(probs), p=probs)
-        coord = tuple(self.meshgrid_flatten[idx])
 
-        reward = float(self.reward_environment[coord])
-        self.X_observations.append(coord)
-        self.y_observations.append(reward)
+        if "fitting" in self.model.model_type:
+            # quick fix, consider adjusting gamma priors instead
+            probs[probs / np.sum(probs) == 0] = 0.001 * np.sum(probs)
+            probs[probs < 0] = 0.001 * np.sum(probs)
+            probs = probs / np.sum(probs)
+
+            self.policy = probs
+            inx = self.model.steps - 1
+            if inx == 1:
+                # overwrite random choice
+                self.X_observations[0] = self.model.individual_choices[0]
+                self.y_observations[0] = self.model.individual_rewards[0]
+            coord = tuple(self.model.individual_choices[inx])
+            self.X_observations.append(coord)
+            self.y_observations.append(self.model.individual_rewards[inx])
+        else:
+            probs /= probs.sum() + 1e-12
+            idx = self.model.rng.choice(len(self.policy), p=self.policy)
+            coord = tuple(self.meshgrid_flatten[idx])
+            reward = float(self.reward_environment[coord])
+            self.X_observations.append(coord)
+            self.y_observations.append(reward)
 
     def step(self):
         # first choice is random
