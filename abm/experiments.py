@@ -348,6 +348,8 @@ def exp_env_size(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
     config_info = dict(
         n_seeds=n_seeds,
         n_runs=n_seeds * n_iterations,
+        max_steps=max_steps,
+        heterogeneity=True,
         **params
     )
     run = wandb.init(
@@ -386,36 +388,24 @@ def exp_env_size(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
     run.finish()
 
 
-
-
 if __name__ == "__main__":
-    # exp_obsnoise_vs_rho(rho_child_child_values=(0.4, 0.6, 0.8))
     n_seeds = 200
     n_iterations = 10
-    for max_steps in [15, 20, 25]:
-        exp_env_size(
-            n_seeds=n_seeds,
-            n_iterations=n_iterations,
-            max_steps=max_steps,
-            length_scale_private=2.4,
-            observation_noise_social=7.0,
-            beta_private=0.7,
-        )
+    max_steps = 15
+    observation_noise_social_heterogeneity = [
+        [7.0, 25.0, 25.0, 25.0],
+        [7.0, 7.0,  25.0, 25.0],
+        [7.0, 7.0,  7.0,  25.0]
+    ]
 
-        exp_env_size(
-            n_seeds=n_seeds,
-            n_iterations=n_iterations,
-            max_steps=max_steps,
-            length_scale_private=1.5,
-            observation_noise_social=25.0,
-            beta_private=0.7,
-        )
-
-        exp_env_size(
-            n_seeds=n_seeds,
-            n_iterations=n_iterations,
-            max_steps=max_steps,
-            length_scale_private=1.5,
-            observation_noise_social=25.0,
-            beta_private=0.3,
-        )
+    for rho in [0.6, 0.3]:
+        for noise_setting in observation_noise_social_heterogeneity:
+            exp_env_size(
+                n_seeds=n_seeds,
+                n_iterations=n_iterations,
+                max_steps=max_steps,
+                length_scale_private=2.0,
+                observation_noise_social=[noise_setting],
+                beta_private=0.7,
+                rho_child_child=rho
+            )
