@@ -1,9 +1,17 @@
+import warnings
+
 import numpy as np
 import pandas as pd
 import scipy.optimize as opt
 from tqdm import tqdm
 
 from model import SocialGPModelReplication
+
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    module="scipy.optimize._differentialevolution"
+)
 
 Xstar = np.array([(x, y) for x in range(11) for y in range(11)])
 
