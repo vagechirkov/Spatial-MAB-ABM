@@ -65,7 +65,7 @@ def replicate_model_fitting():
                         ].reset_index(drop=True),
                     ),
                     maxiter=100,
-                    workers=-1,
+                    workers=30,
                 )["x"]
                 repeated_optimizations.append(np.exp(pars))
                 test_nll += _run_simulation(
