@@ -393,19 +393,22 @@ if __name__ == "__main__":
     n_iterations = 10
     max_steps = 15
     observation_noise_social_heterogeneity = [
-        [7.0, 25.0, 25.0, 25.0],
-        [7.0, 7.0,  25.0, 25.0],
-        [7.0, 7.0,  7.0,  25.0]
+        [25.0, 25.0, 25.0, 25.0],
+        [7.0,  25.0, 25.0, 25.0],
+        [7.0,  7.0,  25.0, 25.0],
+        [7.0,  7.0,  7.0,  25.0],
+        [7.0,  7.0,  7.0,  7.0]
     ]
 
-    for rho in [0.6, 0.3]:
-        for noise_setting in observation_noise_social_heterogeneity:
-            exp_env_size(
-                n_seeds=n_seeds,
-                n_iterations=n_iterations,
-                max_steps=max_steps,
-                length_scale_private=2.0,
-                observation_noise_social=[noise_setting],
-                beta_private=0.7,
-                rho_child_child=rho
-            )
+    for length_scale in [1.5, 2.5]:
+        for rho in [0.6, 0.3]:
+            for noise_setting in observation_noise_social_heterogeneity:
+                exp_env_size(
+                    n_seeds=n_seeds,
+                    n_iterations=n_iterations,
+                    max_steps=max_steps,
+                    length_scale_private=length_scale,
+                    observation_noise_social=[noise_setting],
+                    beta_private=0.7,
+                    rho_child_child=rho
+                )
