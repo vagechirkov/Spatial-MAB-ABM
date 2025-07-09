@@ -398,6 +398,7 @@ class SocialGPAgent(CellAgent):
             self.y_observations.append(self.model.individual_rewards[inx])
         else:
             probs /= probs.sum() + 1e-12
+            self.policy = probs
             idx = self.model.rng.choice(len(self.policy), p=self.policy)
             coord = tuple(self.meshgrid_flatten[idx])
             reward = float(self.reward_environment[coord])

@@ -400,7 +400,7 @@ if __name__ == "__main__":
         [7.0,  7.0,  7.0,  7.0]
     ]
 
-    for length_scale in [1.5, 2.5]:
+    for length_scale in [2.0, 1.5, 2.5]:
         for rho in [0.6, 0.3]:
             for noise_setting in observation_noise_social_heterogeneity:
                 exp_env_size(

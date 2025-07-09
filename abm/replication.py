@@ -104,4 +104,7 @@ def replicate_model_fitting():
 
 
 if __name__ == "__main__":
+    # ulimit -n
+    # ulimit -Hn
+    # ulimit -n 4096
     replicate_model_fitting()
