@@ -338,7 +338,7 @@ def exp_env_size(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
         rho_child_child=0.6,
         beta_private=0.33,
         tau=0.03,
-        grid_size=(11, 13, 15, 17, 19, 21, 23, 25),
+        grid_size=(11, 15, 19, 23, 27),
         seed=list(range(n_seeds)),
     )
     params.update(kwargs)
