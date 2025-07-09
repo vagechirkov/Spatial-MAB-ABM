@@ -283,7 +283,8 @@ class SocialGPAgent(CellAgent):
 
     @property
     def neg_log_likelihood(self) -> float:
-        if self.model.steps == 1:
+        last_choice_is_random = self.model.random_choices[self.model.steps - 1]
+        if (self.model.steps == 1) or last_choice_is_random:
             return 0.0
         return -np.log(self.policy[self.meshgrid_dict[self.last_choice]])
 

@@ -1,4 +1,5 @@
 import warnings
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -33,6 +34,7 @@ def _run_simulation(x, data):
             social_rewards=social_rewards,
             individual_choices=Xstar[np.int32(agent_trials["choice"].values)],
             individual_rewards=agent_trials["reward"].values,
+            random_choices=agent_trials["isRandom"].values == 1,
             model_type="SG_fitting",
             length_scale=np.exp(x[0]),
             beta=np.exp(x[1]),
@@ -73,7 +75,7 @@ def replicate_model_fitting():
                         ].reset_index(drop=True),
                     ),
                     maxiter=100,
-                    workers=30,
+                    workers=60,
                 )["x"]
                 repeated_optimizations.append(np.exp(pars))
                 test_nll += _run_simulation(
@@ -96,7 +98,9 @@ def replicate_model_fitting():
             results.append(result)
 
     df_results = pd.DataFrame(results)
-    df_results.to_csv("./data/replicate_fits.csv", index=False)
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"./data/replicate_fits_{now}.csv"
+    df_results.to_csv(filename, index=False)
 
 
 if __name__ == "__main__":

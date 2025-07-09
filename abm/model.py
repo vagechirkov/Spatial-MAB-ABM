@@ -218,6 +218,7 @@ class SocialGPModelReplication(mesa.Model):
             model_type = "SG_fitting",
             individual_choices = None | tuple[tuple[int, int]],
             individual_rewards = None | tuple[float],
+            random_choices = None | tuple[bool],
             rng = None,
             length_scale: float = 1.11,
             observation_noise_private: float = 0.0001,
@@ -230,6 +231,7 @@ class SocialGPModelReplication(mesa.Model):
         self.social_rewards = social_rewards
         self.individual_choices = individual_choices
         self.individual_rewards = individual_rewards
+        self.random_choices = random_choices
         self.model_type = model_type
 
         self.num_agents = 1
