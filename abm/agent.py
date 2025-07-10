@@ -82,7 +82,7 @@ def social_generalization(
     return np.exp(value_ucb / tau)  # soft-max logits (unnormalised)
 
 
-def value_shaping(
+def value_fusion(
     X_obs_private: np.ndarray,
     y_obs_private: np.ndarray,
     X_obs_social: list[np.ndarray],
@@ -94,22 +94,10 @@ def value_shaping(
     observation_noise_social: float,
     beta_private: float,
     beta_social: float,
-    alpha: float,  # social weight (0 … private-only, 1 … social-only)
+    rho_list: list[float],
     tau: float,
     random_state,
 ) -> np.ndarray:
-    """
-    Value-shaping (different from the model presented in Witt et al., 2024).
-
-    1. Fit **one GP per information source**:
-         • private history with (length_scale_private, observation_noise_private)
-         • every social peer with (length_scale_social, observation_noise_social)
-    2. Compute a UCB value for each:
-            v_i = μ_i + β_i σ_i
-    3. Combine by simple convex combination:
-            v_final = (1-α) * v_private + α * mean_i(v_social_i)
-    4. Soft-max with temperature τ.
-    """
     assert len(X_obs_private) > 0
     assert len(X_obs_social) > 0
 
@@ -125,24 +113,39 @@ def value_shaping(
     value_ucb_private = gp_mean_p + beta_private * gp_std_p
 
     # Social GPs (one per neighbor)
-    if len(X_obs_social) == 0:  # socially isolated
-        value_ucb_social = value_ucb_private.copy()
-    else:
-        social_ucbs = []
-        for xs, ys in zip(X_obs_social, y_obs_social):
-            gp_mean_s, gp_std_s = gp_base_generalization(
-                xs,
-                ys,
-                X_predict,
-                length_scale_social,
-                np.ones(len(xs)) * observation_noise_social,
-                random_state,
-            )
-            social_ucbs.append(gp_mean_s + beta_social * gp_std_s)
-        value_ucb_social = np.mean(np.vstack(social_ucbs), axis=0)
+    ucb_s_list, w_priv_raw_list, w_soc_raw_list = [], [], []
+    for xs, ys, rho_k in zip(X_obs_social, y_obs_social, rho_list):
+        gp_mean_s, gp_std_s = gp_base_generalization(
+            xs,
+            ys,
+            X_predict,
+            length_scale_social,
+            np.ones(len(xs)) * observation_noise_social,
+            random_state,
+        )
+        ucb_s_list.append(gp_mean_s + beta_social * gp_std_s)
 
-    # Combine & soft-max
-    value_final = (1.0 - alpha) * value_ucb_private + alpha * value_ucb_social
+        # private-weight for this peer (variance-ratio + ρ_k)
+        w_p_k = (gp_std_s**2 - rho_k * gp_std_p * gp_std_s) / (
+            gp_std_p**2 + gp_std_s**2 - 2 * rho_k * gp_std_p * gp_std_s + 1e-12
+        )
+        w_p_k = np.clip(w_p_k, 0.0, 1.0)
+
+        w_priv_raw_list.append(w_p_k)
+        w_soc_raw_list.append(1.0 - w_p_k)
+
+    # value_ucb_social = np.mean(np.vstack(ucb_s_list), axis=0)
+    w_priv_raw = np.mean(np.vstack(w_priv_raw_list), axis=0, keepdims=True)
+    w_soc_raw = np.vstack(w_soc_raw_list)
+    total = w_priv_raw + np.sum(w_soc_raw, axis=0, keepdims=True)
+    w_priv = w_priv_raw / total
+    w_soc = w_soc_raw / total
+
+    value_final = w_priv * value_ucb_private + np.sum(
+        w_soc * np.vstack(ucb_s_list), axis=0, keepdims=True
+    )
+
+    # value_final = (1.0 - rho) * value_ucb_private + rho * value_ucb_social
     return np.exp(value_final / tau)  # unnormalised soft-max
 
 
@@ -161,7 +164,7 @@ class SocialGPAgent(CellAgent):
         beta_private: float,
         beta_social: float,
         tau: float,
-        alpha: float,
+        rho: float,
     ):
         super().__init__(model)
 
@@ -182,7 +185,7 @@ class SocialGPAgent(CellAgent):
         self.beta_social = beta_social
 
         self.tau = tau
-        self.alpha = alpha
+        self.rho = rho
 
         # memory buffers
         self.X_observations: list[tuple[int, int]] = []
@@ -346,9 +349,9 @@ class SocialGPAgent(CellAgent):
                 random_state=self.model.rng.__getstate__(),
                 subtract_max_value=True
             )
-        elif self.model.model_type == "VS":
+        elif self.model.model_type == "VF":
             X_soc, y_soc = self._gather_social_info()
-            logits = value_shaping(
+            logits = value_fusion(
                 X_priv,
                 y_priv,
                 X_soc,
@@ -360,7 +363,7 @@ class SocialGPAgent(CellAgent):
                 observation_noise_social=self.observation_noise_social,
                 beta_private=self.beta_private,
                 beta_social=self.beta_social,
-                alpha=self.alpha,
+                rho_list=[self.rho for _ in range(len(y_soc))],  # rho values per social info
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__()
             )

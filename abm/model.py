@@ -54,9 +54,9 @@ class SocialGPModel(mesa.Model):
         length_scale_social: float | None = 2.0,
         observation_noise_private: float | None = 0.1,
         observation_noise_social: float | None = 0.1,
-        alpha: float = 0.5,
-        beta_private: float | None = None,
-        beta_social: float | None = None,
+        rho: float = 0.60,
+        beta_private: float | None = 0.7,
+        beta_social: float | None = 0.7,
         tau: float = 1.0,
         network_type: str = "fully_connected",
         attention_budget: int = 4,
@@ -106,7 +106,7 @@ class SocialGPModel(mesa.Model):
             beta_private=beta_private,
             beta_social=beta_social,
             tau=tau,
-            alpha=alpha
+            rho=rho
         )
 
         self.datacollector = DataCollector(
@@ -140,13 +140,15 @@ class SocialGPModelSBI(mesa.Model):
             observation_noise_private: float = 0.1,
             observation_noise_social: float = 0.1,
             beta: float = 0.33,
-            tau: float = 0.03
+            tau: float = 0.03,
+            model_type: str = "SG",
+            rho: float = 0.60,
     ):
         super().__init__(rng=rng)
 
         self.num_agents = n
         self.grid_size = grid_size
-        self.model_type = "SG"
+        self.model_type = model_type
         self.attention_budget = 4
 
         # generate network
@@ -169,7 +171,7 @@ class SocialGPModelSBI(mesa.Model):
             beta_private=beta,
             beta_social=beta,
             tau=tau,
-            alpha=None
+            rho=rho
         )
 
         self.datacollector = DataCollector(
@@ -297,7 +299,9 @@ class SocialGPModelReplication(mesa.Model):
 if __name__ == "__main__":
     import seaborn as sns
     import matplotlib.pyplot as plt
-    m = SocialGPModel()
+    m = SocialGPModel(model_type="VF")
+    for _ in range(15):
+        m.step()
 
     param_grid = {
         "n": [4],

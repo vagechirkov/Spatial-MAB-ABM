@@ -388,27 +388,83 @@ def exp_env_size(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
     run.finish()
 
 
+def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
+    params = dict(
+        model_type=["AS", "VF"],
+        n=4,
+        grid_size=11,
+        rho_child_child=0.6,
+        length_scale_private=2.0,
+        length_scale_social=2.0,
+        observation_noise_private=0.001,
+        observation_noise_social=0.001,
+        beta_private=0.7,
+        beta_social=0.7,
+        rho=(-1, -0.6, -0.3, 0, 0.3, 0.6, 1),
+        tau=0.03,
+        seed=list(range(n_seeds)),
+    )
+    params.update(kwargs)
+
+    # wandb setup
+    wandb.login()
+    config_info = dict(
+        n_seeds=n_seeds,
+        n_runs=n_seeds * n_iterations,
+        max_steps=max_steps,
+        heterogeneity=False,
+        **params
+    )
+    run = wandb.init(
+        project="soc-MAB-ABM",
+        group="value_fusion_model",
+        name=f"VF_{uuid.uuid4().hex[:6]}",
+        config=config_info,
+        dir=os.getcwd(),
+    )
+
+    batch_results = mesa.batch_run(
+        SocialGPModel,
+        parameters=params,
+        iterations=n_iterations,
+        max_steps=max_steps,
+        number_processes=None,
+        data_collection_period=-1,
+        display_progress=True,
+    )
+    batch_results = pd.DataFrame(batch_results)
+
+    plt.figure(figsize=(12, 6))
+    sns.catplot(
+        data=batch_results,
+        kind="point",
+        hue="model_type",
+        y="cumulative_reward",
+        x="rho",
+        dodge=0.3,
+        linestyles="",
+        aspect=1.3,
+    )
+    run.log({"cumulative_reward_catplot": wandb.Image(plt)})
+    plt.close()
+
+    run.finish()
+
+
 if __name__ == "__main__":
-    n_seeds = 200
-    n_iterations = 10
+    n_seeds = 10
+    n_iterations = 5
     max_steps = 15
-    observation_noise_social_heterogeneity = [
-        [25.0, 25.0, 25.0, 25.0],
-        [7.0,  25.0, 25.0, 25.0],
-        [7.0,  7.0,  25.0, 25.0],
-        [7.0,  7.0,  7.0,  25.0],
-        [7.0,  7.0,  7.0,  7.0]
-    ]
 
     for length_scale in [2.0, 1.5, 2.5]:
-        for rho in [0.6, 0.3]:
-            for noise_setting in observation_noise_social_heterogeneity:
-                exp_env_size(
-                    n_seeds=n_seeds,
-                    n_iterations=n_iterations,
-                    max_steps=max_steps,
-                    length_scale_private=length_scale,
-                    observation_noise_social=[noise_setting],
-                    beta_private=0.7,
-                    rho_child_child=rho
-                )
+        for rho in [0.6]:  # , 0.3
+            exp_value_fusion_model(
+                n_seeds=n_seeds,
+                n_iterations=n_iterations,
+                max_steps=max_steps,
+                length_scale_private=length_scale,
+                length_scale_social=length_scale,
+                beta_private=0.3,
+                beta_social=0.3,
+                rho_child_child=rho
+            )
