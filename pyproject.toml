@@ -9,11 +9,11 @@ package-mode = false
 
 [tool.poetry.dependencies]
 python = ">=3.12, <3.14"
-jupyterlab = "^4.4.3"
+jupyterlab = ">=4.4.3"
 mesa = {extras = ["all"], version = "^3.2.0"}
 pymc = "^5.23.0"
 sbi = {git = "https://github.com/sbi-dev/sbi.git", rev = "main"}
-wandb = {extras = ["media", "sweeps"], version = "^0.20.1"}
+wandb = {extras = ["media", "sweeps"], version = ">=0.20.1"}
 
 
 [tool.poetry.group.dev.dependencies]

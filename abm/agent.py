@@ -2,7 +2,7 @@
 import numpy as np
 from mesa.discrete_space import CellAgent
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF
+from sklearn.gaussian_process.kernels import Kernel, RBF
 
 
 def step_distance(x):
@@ -147,6 +147,84 @@ def value_fusion(
 
     # value_final = (1.0 - rho) * value_ucb_private + rho * value_ucb_social
     return np.exp(value_final / tau)  # unnormalised soft-max
+
+
+class ICMKernel(Kernel):
+    """Intrinsic Coregionalization Model kernel"""
+
+    def __init__(self, length_scale=1.0, rho=0.5):
+        self.length_scale = length_scale
+        self.rho = rho
+        self.base = RBF(length_scale=length_scale)
+
+    def __call__(self, X, Y=None, eval_gradient=False):
+        X, Y = np.atleast_2d(X), X if Y is None else np.atleast_2d(Y)
+        X_feat, X_out = X[:, :-1], X[:, -1].astype(int)
+        Y_feat, Y_out = Y[:, :-1], Y[:, -1].astype(int)
+
+        Kxy = self.base(X_feat, Y_feat, eval_gradient=eval_gradient)
+
+        # Coregionalization matrix (all off-diags = rho, diags = 1)
+        Bxy = self.rho * (X_out[:, None] != Y_out[None, :]) + (
+            X_out[:, None] == Y_out[None, :]
+        )
+        K = Bxy * Kxy
+
+        return K
+
+    def diag(self, X):
+        return np.ones(X.shape[0])
+
+    def is_stationary(self):
+        return True
+
+
+def _stack_tasks(X_private, X_social_list):
+    X_p = np.hstack([X_private, np.zeros((len(X_private), 1))])
+    X_s = [
+        np.hstack([Xs, np.full((len(Xs), 1), k + 1)])
+        for k, Xs in enumerate(X_social_list)
+    ]
+    return np.vstack([X_p] + X_s)
+
+
+def _stack_targets(y_private, y_social_list):
+    return np.vstack([y_private] + y_social_list)
+
+
+def value_fusion_icm(
+    X_obs_private,
+    y_obs_private,
+    X_obs_social,
+    y_obs_social,
+    X_predict,
+    length_scale,
+    observation_noise_private,
+    observation_noise_social,
+    beta,
+    rho,
+    tau,
+    random_state,
+):
+    X_all = _stack_tasks(X_obs_private, X_obs_social)
+    Y_all = _stack_targets(y_obs_private, y_obs_social)
+
+    kernel = ICMKernel(length_scale=length_scale, rho=rho)
+    gpr = GaussianProcessRegressor(
+        kernel=kernel,
+        alpha=observation_noise_private,
+        optimizer=None,
+        normalize_y=False,
+        random_state=random_state,
+    )
+    gpr.fit(X_all, Y_all.ravel())
+
+    X_star_priv = np.hstack([X_predict, np.zeros((len(X_predict), 1))])
+    mu, std = gpr.predict(X_star_priv, return_std=True)
+
+    ucb = mu.reshape(-1, 1) + beta * std.reshape(-1, 1)
+    logits = np.exp(ucb / tau)
+    return logits
 
 
 class SocialGPAgent(CellAgent):
@@ -351,19 +429,21 @@ class SocialGPAgent(CellAgent):
             )
         elif self.model.model_type == "VF":
             X_soc, y_soc = self._gather_social_info()
-            logits = value_fusion(
+            logits = value_fusion_icm(  # value_fusion
                 X_priv,
                 y_priv,
                 X_soc,
                 y_soc,
                 self.meshgrid_flatten,
-                length_scale_private=self.length_scale_private,
-                length_scale_social=self.length_scale_social,
+                length_scale=self.length_scale_private,
+                # length_scale_private=self.length_scale_private,
+                # length_scale_social=self.length_scale_social,
                 observation_noise_private=self.observation_noise_private,
                 observation_noise_social=self.observation_noise_social,
-                beta_private=self.beta_private,
-                beta_social=self.beta_social,
-                rho_list=[self.rho for _ in range(len(y_soc))],  # rho values per social info
+                beta=self.beta_private,
+                # beta_private=self.beta_private,
+                # beta_social=self.beta_social,
+                rho=self.rho,  # rho values per social info
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__()
             )

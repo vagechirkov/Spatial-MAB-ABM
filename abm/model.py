@@ -136,13 +136,15 @@ class SocialGPModelSBI(mesa.Model):
             rng = None,
             n: int = 4,
             grid_size: int = 11,
-            length_scale: float = 1.11,
-            observation_noise_private: float = 0.1,
-            observation_noise_social: float = 0.1,
-            beta: float = 0.33,
-            tau: float = 0.03,
             model_type: str = "SG",
+            length_scale_private: float | None = 2.0,
+            length_scale_social: float | None = 2.0,
+            observation_noise_private: float | None = 0.1,
+            observation_noise_social: float | None = 0.1,
             rho: float = 0.60,
+            beta_private: float | None = 0.7,
+            beta_social: float | None = 0.7,
+            tau: float = 1.0,
     ):
         super().__init__(rng=rng)
 
