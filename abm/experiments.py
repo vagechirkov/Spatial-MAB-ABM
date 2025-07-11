@@ -405,14 +405,14 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
         n=4,
         grid_size=11,
         rho_child_child=0.6,
-        length_scale_private=(0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5),
+        length_scale_private=(1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5),
         length_scale_social=2.0,
         length_scale_is_identical=True,
         observation_noise_private=0.001,
         observation_noise_social=0.001,
         beta_private=0.7,
         beta_social=0.7,
-        rho=(-0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9),
+        rho=(-0.2, 0, 0.2, 0.4, 0.6, 0.8, 0.95),
         tau=0.03,
         seed=list(range(n_seeds)),
     )
@@ -495,7 +495,7 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
 
 if __name__ == "__main__":
     n_seeds = 200
-    n_iterations = 10
+    n_iterations = 5
     max_steps = 15
 
     for beta in [0.4, 0.5, 0.6, 0.7]:
