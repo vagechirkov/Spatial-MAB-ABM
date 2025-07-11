@@ -232,8 +232,8 @@ def plot_heatmap_cumulative_score(
     score_column="cumulative_reward",
     x_col="observation_noise_social_factor",
     y_col="rho_child_child",
-    vmin=-2,
-    vmax=2,
+    vmin=-2.0,
+    vmax=2.0,
 ):
     # df['observation_noise_social_factor'] = df["observation_noise_social"] / observation_noise_private
     agg = (
@@ -265,7 +265,7 @@ def plot_heatmap_cumulative_score(
     ax.set_ylabel(y_col)
     fig.tight_layout()
 
-    run.log({f"{score_column}_heatmap": wandb.Image(plt)})
+    run.log({f"{score_column}_{x_col}_{y_col}_heatmap": wandb.Image(plt)})
     plt.close()
 
 
@@ -405,12 +405,12 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
         n=4,
         grid_size=11,
         rho_child_child=0.6,
-        length_scale_private=(1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5),
+        length_scale_private=2.0,  # (1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5)
         length_scale_social=2.0,
         length_scale_is_identical=True,
         observation_noise_private=0.001,
         observation_noise_social=0.001,
-        beta_private=0.7,
+        beta_private=(0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8),
         beta_social=0.7,
         rho=(-0.2, 0, 0.2, 0.4, 0.6, 0.8, 0.95),
         tau=0.03,
@@ -446,10 +446,25 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
     )
     batch_results = pd.DataFrame(batch_results)
 
-    for l in [1.0, 2.0, 3.0]:
+    # for l in [1.0, 2.0, 3.0]:
+    #     plt.figure(figsize=(12, 6))
+    #     sns.catplot(
+    #         data=batch_results[batch_results['length_scale_private'] == l],
+    #         kind="point",
+    #         hue="model_type",
+    #         y="cumulative_reward",
+    #         x="rho",
+    #         dodge=0.3,
+    #         linestyles="",
+    #         aspect=1.3,
+    #     )
+    #     run.log({f"cumulative_reward_catplot_lambda_{l}": wandb.Image(plt)})
+    #     plt.close()
+
+    for b in [0.4, 0.5, 0.6, 0.7]:
         plt.figure(figsize=(12, 6))
         sns.catplot(
-            data=batch_results[batch_results['length_scale_private'] == l],
+            data=batch_results[batch_results['beta_private'] == b],
             kind="point",
             hue="model_type",
             y="cumulative_reward",
@@ -458,11 +473,11 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
             linestyles="",
             aspect=1.3,
         )
-        run.log({f"cumulative_reward_catplot_lambda_{l}": wandb.Image(plt)})
+        run.log({f"cumulative_reward_catplot_beta_{b}": wandb.Image(plt)})
         plt.close()
 
-    # Group by and calculate the mean cumulative_reward for each model_type, rho, length_scale_private
-    group_cols = ["rho", "length_scale_private", "model_type"]
+    column = "beta_private" # "length_scale_private"
+    group_cols = ["rho", column, "model_type"]
     grouped = (
         batch_results
         .groupby(group_cols)["cumulative_reward"]
@@ -472,7 +487,7 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
 
     # Pivot to get AS and VF-ICM as columns for each (rho, length_scale_private)
     pivot = grouped.pivot_table(
-        index=["rho", "length_scale_private"],
+        index=["rho", column],
         columns="model_type",
         values="cumulative_reward"
     ).reset_index()
@@ -488,8 +503,11 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
         run,
         score_column="cumulative_reward_diff",
         x_col="rho",
-        y_col="length_scale_private",
+        y_col=column,
+        vmin=-1.5,
+        vmax=1.5,
     )
+
     run.finish()
 
 
@@ -498,13 +516,14 @@ if __name__ == "__main__":
     n_iterations = 5
     max_steps = 15
 
-    for beta in [0.4, 0.5, 0.6, 0.7]:
+    for length_scale in [1.0, 2.0, 3.0, 4.0]:
         for rho in [0.6]:  # , 0.3
             exp_value_fusion_model(
                 n_seeds=n_seeds,
                 n_iterations=n_iterations,
                 max_steps=max_steps,
-                beta_private=beta,
-                beta_social=beta,
+                length_scale_private=length_scale,
+                # beta_private=beta,
+                # beta_social=beta,
                 rho_child_child=rho
             )
