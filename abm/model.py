@@ -52,6 +52,7 @@ class SocialGPModel(mesa.Model):
         model_type: str = "SG",
         length_scale_private: float | None = 2.0,
         length_scale_social: float | None = 2.0,
+        length_scale_is_identical: bool = True,
         observation_noise_private: float | None = 0.1,
         observation_noise_social: float | None = 0.1,
         rho: float = 0.60,
@@ -90,6 +91,9 @@ class SocialGPModel(mesa.Model):
         G = _build_network(network_type, child_maps, gamma_pa, self.rng)
         self.grid = Network(G, random=self.random)
 
+        if length_scale_is_identical:
+            length_scale_social = length_scale_private
+
         SocialGPAgent.create_agents(
             self,
             self.num_agents,
@@ -101,6 +105,7 @@ class SocialGPModel(mesa.Model):
             ),
             length_scale_private=length_scale_private,
             length_scale_social=length_scale_social,
+            length_scale_is_identical=length_scale_is_identical,
             observation_noise_private=observation_noise_private,
             observation_noise_social=observation_noise_social,
             beta_private=beta_private,
@@ -166,12 +171,12 @@ class SocialGPModelSBI(mesa.Model):
             reward_environment=self.rng.choice(
                 child_maps, replace=False, size=self.num_agents
             ),
-            length_scale_private=length_scale,
-            length_scale_social=length_scale,
+            length_scale_private=length_scale_private,
+            length_scale_social=length_scale_social,
             observation_noise_private=observation_noise_private,
             observation_noise_social=observation_noise_social,
-            beta_private=beta,
-            beta_social=beta,
+            beta_private=beta_private,
+            beta_social=beta_social,
             tau=tau,
             rho=rho
         )

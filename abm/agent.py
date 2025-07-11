@@ -1,8 +1,9 @@
-
 import numpy as np
 from mesa.discrete_space import CellAgent
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import Kernel, RBF
+from sklearn.gaussian_process.kernels import RBF
+
+from utils import ICMKernel, LMCKernel
 
 
 def step_distance(x):
@@ -149,36 +150,6 @@ def value_fusion(
     return np.exp(value_final / tau)  # unnormalised soft-max
 
 
-class ICMKernel(Kernel):
-    """Intrinsic Coregionalization Model kernel"""
-
-    def __init__(self, length_scale=1.0, rho=0.5):
-        self.length_scale = length_scale
-        self.rho = rho
-        self.base = RBF(length_scale=length_scale)
-
-    def __call__(self, X, Y=None, eval_gradient=False):
-        X, Y = np.atleast_2d(X), X if Y is None else np.atleast_2d(Y)
-        X_feat, X_out = X[:, :-1], X[:, -1].astype(int)
-        Y_feat, Y_out = Y[:, :-1], Y[:, -1].astype(int)
-
-        Kxy = self.base(X_feat, Y_feat, eval_gradient=eval_gradient)
-
-        # Coregionalization matrix (all off-diags = rho, diags = 1)
-        Bxy = self.rho * (X_out[:, None] != Y_out[None, :]) + (
-            X_out[:, None] == Y_out[None, :]
-        )
-        K = Bxy * Kxy
-
-        return K
-
-    def diag(self, X):
-        return np.ones(X.shape[0])
-
-    def is_stationary(self):
-        return True
-
-
 def _stack_tasks(X_private, X_social_list):
     X_p = np.hstack([X_private, np.zeros((len(X_private), 1))])
     X_s = [
@@ -198,7 +169,9 @@ def value_fusion_icm(
     X_obs_social,
     y_obs_social,
     X_predict,
-    length_scale,
+    length_scale_private: float,
+    length_scale_social: float,
+    length_scale_is_identical: bool,
     observation_noise_private,
     observation_noise_social,
     beta,
@@ -209,10 +182,23 @@ def value_fusion_icm(
     X_all = _stack_tasks(X_obs_private, X_obs_social)
     Y_all = _stack_targets(y_obs_private, y_obs_social)
 
-    kernel = ICMKernel(length_scale=length_scale, rho=rho)
+    if length_scale_is_identical:
+        kernel = ICMKernel(length_scale=length_scale_private, rho=rho)
+    else:
+        kernel = LMCKernel(
+            length_scale_private=length_scale_private,
+            length_scale_social=length_scale_social,
+            rho=rho,
+        )
+
+    observation_noise = np.hstack(
+        [np.ones(len(y_obs_private)) * observation_noise_private]
+        + [np.ones(len(y_soc)) * observation_noise_social for y_soc in y_obs_social]
+    )
+
     gpr = GaussianProcessRegressor(
         kernel=kernel,
-        alpha=observation_noise_private,
+        alpha=observation_noise,
         optimizer=None,
         normalize_y=False,
         random_state=random_state,
@@ -243,6 +229,7 @@ class SocialGPAgent(CellAgent):
         beta_social: float,
         tau: float,
         rho: float,
+        length_scale_is_identical: bool = False,
     ):
         super().__init__(model)
 
@@ -255,6 +242,9 @@ class SocialGPAgent(CellAgent):
         # hyperparameters
         self.length_scale_private = length_scale_private
         self.length_scale_social = length_scale_social
+        self.length_scale_is_identical = length_scale_is_identical
+        if length_scale_is_identical:
+            assert np.abs(length_scale_private - length_scale_social) < 0.01, "Length scales are not identical"
 
         self.observation_noise_private = observation_noise_private
         self.observation_noise_social = observation_noise_social
@@ -427,17 +417,17 @@ class SocialGPAgent(CellAgent):
                 random_state=self.model.rng.__getstate__(),
                 subtract_max_value=True
             )
-        elif self.model.model_type == "VF":
+        elif self.model.model_type == "VF-ICM":
             X_soc, y_soc = self._gather_social_info()
-            logits = value_fusion_icm(  # value_fusion
+            logits = value_fusion_icm(
                 X_priv,
                 y_priv,
                 X_soc,
                 y_soc,
                 self.meshgrid_flatten,
-                length_scale=self.length_scale_private,
-                # length_scale_private=self.length_scale_private,
-                # length_scale_social=self.length_scale_social,
+                length_scale_private=self.length_scale_private,
+                length_scale_social=self.length_scale_social,
+                length_scale_is_identical=self.length_scale_is_identical,
                 observation_noise_private=self.observation_noise_private,
                 observation_noise_social=self.observation_noise_social,
                 beta=self.beta_private,

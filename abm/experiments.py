@@ -230,31 +230,42 @@ def plot_heatmap_cumulative_score(
     df,
     run,
     score_column="cumulative_reward",
-    observation_noise_private=0.0001,
-    max_steps=15,
-    title="Cumulative Reward",
+    x_col="observation_noise_social_factor",
+    y_col="rho_child_child",
+    vmin=-2,
+    vmax=2,
 ):
-    df['observation_noise_social_factor'] = df["observation_noise_social"] / observation_noise_private
+    # df['observation_noise_social_factor'] = df["observation_noise_social"] / observation_noise_private
     agg = (
-        df.groupby(["rho_child_child", "observation_noise_social_factor"])[score_column]
+        df.groupby([y_col, x_col])[score_column]
         .mean()
         .unstack()
-    ) * 100
+    )
 
-    plt.figure(figsize=(8, 6))
-    im = plt.imshow(
+    fig, ax = plt.subplots(figsize=(8, 8))
+    im = ax.imshow(
         agg.values,
         origin="lower",
-        aspect="auto",
+        aspect="equal",
+        vmin=vmin,
+        vmax=vmax,
+        cmap="seismic"
     )
-    plt.colorbar(im, label="Cumulative Reward")
-    plt.xticks(range(len(agg.columns)), [f"{v:.2g}" for v in agg.columns])
-    plt.yticks(range(len(agg.index)), [f"{v:.2f}" for v in agg.index])
-    plt.ylabel("rho_child_child")
-    plt.xlabel("observation_noise_social_factor")
-    plt.title(title)
-    plt.tight_layout()
-    run.log({"cumulative_reward_heatmap": wandb.Image(plt)})
+
+    # Make colorbar same height as axes
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label(score_column)
+
+    ax.set_xticks(range(len(agg.columns)))
+    ax.set_xticklabels([f"{v:.2g}" for v in agg.columns])
+    ax.set_yticks(range(len(agg.index)))
+    ax.set_yticklabels([f"{v:.2f}" for v in agg.index])
+
+    ax.set_xlabel(x_col)
+    ax.set_ylabel(y_col)
+    fig.tight_layout()
+
+    run.log({f"{score_column}_heatmap": wandb.Image(plt)})
     plt.close()
 
 
@@ -390,17 +401,18 @@ def exp_env_size(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
 
 def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
     params = dict(
-        model_type=["AS", "VF"],
+        model_type=["AS", "VF-ICM"],
         n=4,
         grid_size=11,
         rho_child_child=0.6,
-        length_scale_private=2.0,
+        length_scale_private=(0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5),
         length_scale_social=2.0,
+        length_scale_is_identical=True,
         observation_noise_private=0.001,
         observation_noise_social=0.001,
         beta_private=0.7,
         beta_social=0.7,
-        rho=(-1, -0.6, -0.3, 0, 0.3, 0.6, 1),
+        rho=(-0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9),
         tau=0.03,
         seed=list(range(n_seeds)),
     )
@@ -434,37 +446,65 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
     )
     batch_results = pd.DataFrame(batch_results)
 
-    plt.figure(figsize=(12, 6))
-    sns.catplot(
-        data=batch_results,
-        kind="point",
-        hue="model_type",
-        y="cumulative_reward",
-        x="rho",
-        dodge=0.3,
-        linestyles="",
-        aspect=1.3,
-    )
-    run.log({"cumulative_reward_catplot": wandb.Image(plt)})
-    plt.close()
+    for l in [1.0, 2.0, 3.0]:
+        plt.figure(figsize=(12, 6))
+        sns.catplot(
+            data=batch_results[batch_results['length_scale_private'] == l],
+            kind="point",
+            hue="model_type",
+            y="cumulative_reward",
+            x="rho",
+            dodge=0.3,
+            linestyles="",
+            aspect=1.3,
+        )
+        run.log({f"cumulative_reward_catplot_lambda_{l}": wandb.Image(plt)})
+        plt.close()
 
+    # Group by and calculate the mean cumulative_reward for each model_type, rho, length_scale_private
+    group_cols = ["rho", "length_scale_private", "model_type"]
+    grouped = (
+        batch_results
+        .groupby(group_cols)["cumulative_reward"]
+        .mean()
+        .reset_index()
+    )
+
+    # Pivot to get AS and VF-ICM as columns for each (rho, length_scale_private)
+    pivot = grouped.pivot_table(
+        index=["rho", "length_scale_private"],
+        columns="model_type",
+        values="cumulative_reward"
+    ).reset_index()
+
+    # Calculate the difference: VF-ICM minus AS
+    pivot["cumulative_reward_diff"] = pivot["VF-ICM"] - pivot["AS"]
+
+    # Prepare for heatmap plotting
+    batch_results_diff = pivot
+
+    plot_heatmap_cumulative_score(
+        batch_results_diff,
+        run,
+        score_column="cumulative_reward_diff",
+        x_col="rho",
+        y_col="length_scale_private",
+    )
     run.finish()
 
 
 if __name__ == "__main__":
-    n_seeds = 10
-    n_iterations = 5
+    n_seeds = 200
+    n_iterations = 10
     max_steps = 15
 
-    for length_scale in [2.0, 1.5, 2.5]:
+    for beta in [0.4, 0.5, 0.6, 0.7]:
         for rho in [0.6]:  # , 0.3
             exp_value_fusion_model(
                 n_seeds=n_seeds,
                 n_iterations=n_iterations,
                 max_steps=max_steps,
-                length_scale_private=length_scale,
-                length_scale_social=length_scale,
-                beta_private=0.3,
-                beta_social=0.3,
+                beta_private=beta,
+                beta_social=beta,
                 rho_child_child=rho
             )
