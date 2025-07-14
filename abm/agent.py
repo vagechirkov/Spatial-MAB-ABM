@@ -83,7 +83,7 @@ def social_generalization(
     return np.exp(value_ucb / tau)  # soft-max logits (unnormalised)
 
 
-def value_fusion(
+def value_shaping(
     X_obs_private: np.ndarray,
     y_obs_private: np.ndarray,
     X_obs_social: list[np.ndarray],
@@ -95,12 +95,14 @@ def value_fusion(
     observation_noise_social: float,
     beta_private: float,
     beta_social: float,
-    rho_list: list[float],
+    alpha: float,
     tau: float,
     random_state,
+    value_shaping_type: str = "linear_weight"
 ) -> np.ndarray:
     assert len(X_obs_private) > 0
     assert len(X_obs_social) > 0
+    assert value_shaping_type in ["naive", "linear_weight", "correlated_kalman"]
 
     # Private GP
     gp_mean_p, gp_std_p = gp_base_generalization(
@@ -113,40 +115,62 @@ def value_fusion(
     )
     value_ucb_private = gp_mean_p + beta_private * gp_std_p
 
+    value_final = value_ucb_private.copy()
+
     # Social GPs (one per neighbor)
-    ucb_s_list, w_priv_raw_list, w_soc_raw_list = [], [], []
-    for xs, ys, rho_k in zip(X_obs_social, y_obs_social, rho_list):
-        gp_mean_s, gp_std_s = gp_base_generalization(
-            xs,
-            ys,
-            X_predict,
-            length_scale_social,
-            np.ones(len(xs)) * observation_noise_social,
-            random_state,
+    if value_shaping_type == "naive":
+        value_ucb_social = ...
+    elif value_shaping_type == "linear_weight":
+        ucb_s_list = []
+        for xs, ys in zip(X_obs_social, y_obs_social):
+            gp_mean_s, gp_std_s = gp_base_generalization(
+                xs,
+                ys,
+                X_predict,
+                length_scale_social,
+                np.ones(len(xs)) * observation_noise_social,
+                random_state,
+                )
+            ucb_s_list.append(gp_mean_s + beta_social * gp_std_s)
+
+        value_ucb_social = np.mean(np.vstack(ucb_s_list), axis=0)
+        value_final = (1.0 - alpha) * value_ucb_private + alpha * value_ucb_social
+    elif value_shaping_type == "correlated_kalman":
+        ucb_s_list, w_priv_raw_list, w_soc_raw_list = [], [], []
+        for xs, ys in zip(X_obs_social, y_obs_social):
+            gp_mean_s, gp_std_s = gp_base_generalization(
+                xs,
+                ys,
+                X_predict,
+                length_scale_social,
+                np.ones(len(xs)) * observation_noise_social,
+                random_state,
+                )
+            ucb_s_list.append(gp_mean_s + beta_social * gp_std_s)
+
+            rho_k = alpha
+            # private-weight for this peer (variance-ratio + ρ_k)
+            w_p_k = (gp_std_s**2 - rho_k * gp_std_p * gp_std_s) / (
+                gp_std_p**2 + gp_std_s**2 - 2 * rho_k * gp_std_p * gp_std_s + 1e-12
+            )
+            w_p_k = np.clip(w_p_k, 0.0, 1.0)
+
+            w_priv_raw_list.append(w_p_k)
+            w_soc_raw_list.append(1.0 - w_p_k)
+
+        w_priv_raw = np.mean(np.vstack(w_priv_raw_list), axis=0, keepdims=True)
+        w_soc_raw = np.vstack(w_soc_raw_list)
+        total = w_priv_raw + np.sum(w_soc_raw, axis=0, keepdims=True)
+        w_priv = w_priv_raw / total
+        w_soc = w_soc_raw / total
+
+        value_final = w_priv * value_ucb_private + np.sum(
+            w_soc * np.vstack(ucb_s_list), axis=0, keepdims=True
         )
-        ucb_s_list.append(gp_mean_s + beta_social * gp_std_s)
+        value_final = value_final.flatten()
+    else:
+        raise NotImplementedError(f"{value_shaping_type} is not implemented.")
 
-        # private-weight for this peer (variance-ratio + ρ_k)
-        w_p_k = (gp_std_s**2 - rho_k * gp_std_p * gp_std_s) / (
-            gp_std_p**2 + gp_std_s**2 - 2 * rho_k * gp_std_p * gp_std_s + 1e-12
-        )
-        w_p_k = np.clip(w_p_k, 0.0, 1.0)
-
-        w_priv_raw_list.append(w_p_k)
-        w_soc_raw_list.append(1.0 - w_p_k)
-
-    # value_ucb_social = np.mean(np.vstack(ucb_s_list), axis=0)
-    w_priv_raw = np.mean(np.vstack(w_priv_raw_list), axis=0, keepdims=True)
-    w_soc_raw = np.vstack(w_soc_raw_list)
-    total = w_priv_raw + np.sum(w_soc_raw, axis=0, keepdims=True)
-    w_priv = w_priv_raw / total
-    w_soc = w_soc_raw / total
-
-    value_final = w_priv * value_ucb_private + np.sum(
-        w_soc * np.vstack(ucb_s_list), axis=0, keepdims=True
-    )
-
-    # value_final = (1.0 - rho) * value_ucb_private + rho * value_ucb_social
     return np.exp(value_final / tau)  # unnormalised soft-max
 
 
