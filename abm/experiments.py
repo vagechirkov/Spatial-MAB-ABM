@@ -399,9 +399,10 @@ def exp_env_size(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
     run.finish()
 
 
-def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
+def exp_social_generalization_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
+    model_type = "SG"  # # VF-ICM
     params = dict(
-        model_type=["AS", "VF-ICM"],
+        model_type=["AS", model_type],
         n=4,
         grid_size=11,
         rho_child_child=0.6,
@@ -409,10 +410,10 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
         length_scale_social=2.0,
         length_scale_is_identical=True,
         observation_noise_private=0.001,
-        observation_noise_social=0.001,
+        observation_noise_social=(0.001, 0.001*10, 0.001*100, 0.001*1000, 0.001*10_000, 0.001*100_000),
         beta_private=(0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8),
         beta_social=0.7,
-        rho=(-0.2, 0, 0.2, 0.4, 0.6, 0.8, 0.95),
+        rho=0,  # (-0.2, 0, 0.2, 0.4, 0.6, 0.8, 0.95)
         tau=0.03,
         seed=list(range(n_seeds)),
     )
@@ -461,6 +462,8 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
     #     run.log({f"cumulative_reward_catplot_lambda_{l}": wandb.Image(plt)})
     #     plt.close()
 
+    x_values_column = "observation_noise_social"  # rho
+    column = "beta_private" # "length_scale_private"
     for b in [0.4, 0.5, 0.6, 0.7]:
         plt.figure(figsize=(12, 6))
         sns.catplot(
@@ -468,7 +471,7 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
             kind="point",
             hue="model_type",
             y="cumulative_reward",
-            x="rho",
+            x=x_values_column,
             dodge=0.3,
             linestyles="",
             aspect=1.3,
@@ -476,8 +479,8 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
         run.log({f"cumulative_reward_catplot_beta_{b}": wandb.Image(plt)})
         plt.close()
 
-    column = "beta_private" # "length_scale_private"
-    group_cols = ["rho", column, "model_type"]
+
+    group_cols = [x_values_column, column, "model_type"]  # "rho"
     grouped = (
         batch_results
         .groupby(group_cols)["cumulative_reward"]
@@ -487,13 +490,13 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
 
     # Pivot to get AS and VF-ICM as columns for each (rho, length_scale_private)
     pivot = grouped.pivot_table(
-        index=["rho", column],
+        index=[x_values_column, column],
         columns="model_type",
         values="cumulative_reward"
     ).reset_index()
 
     # Calculate the difference: VF-ICM minus AS
-    pivot["cumulative_reward_diff"] = pivot["VF-ICM"] - pivot["AS"]
+    pivot["cumulative_reward_diff"] = pivot[model_type] - pivot["AS"]
 
     # Prepare for heatmap plotting
     batch_results_diff = pivot
@@ -502,7 +505,7 @@ def exp_value_fusion_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
         batch_results_diff,
         run,
         score_column="cumulative_reward_diff",
-        x_col="rho",
+        x_col=x_values_column,
         y_col=column,
         vmin=-1.5,
         vmax=1.5,
@@ -517,8 +520,8 @@ if __name__ == "__main__":
     max_steps = 15
 
     for length_scale in [1.0, 2.0, 3.0, 4.0]:
-        for rho in [0.6]:  # , 0.3
-            exp_value_fusion_model(
+        for rho in [0.6, 0.4]:  # , 0.3
+            exp_social_generalization_model(
                 n_seeds=n_seeds,
                 n_iterations=n_iterations,
                 max_steps=max_steps,
