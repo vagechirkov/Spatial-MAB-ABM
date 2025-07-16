@@ -406,14 +406,14 @@ def exp_social_generalization_model(n_seeds=200, n_iterations=1, max_steps=15, *
         n=4,
         grid_size=11,
         rho_child_child=0.6,
-        length_scale_private=2.0,  # (1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5)
+        length_scale_private=(0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0),
         length_scale_social=2.0,
         length_scale_is_identical=True,
         observation_noise_private=0.001,
         observation_noise_social=0.001,  # (0.001, 0.001*10, 0.001*100, 0.001*1000, 0.001*10_000, 0.001*100_000),
         beta_private=(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
         beta_social=0.7,
-        rho=(-0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95), # 0,  #
+        rho=0, # (-0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
         tau=0.03,
         seed=list(range(n_seeds)),
     )
@@ -462,7 +462,7 @@ def exp_social_generalization_model(n_seeds=200, n_iterations=1, max_steps=15, *
     #     run.log({f"cumulative_reward_catplot_lambda_{l}": wandb.Image(plt)})
     #     plt.close()
 
-    x_values_column = "rho"  # "observation_noise_social"
+    x_values_column = "length_scale_private"  # "rho" "observation_noise_social"
     column = "beta_private" # "length_scale_private"
     for b in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
         plt.figure(figsize=(12, 6))
@@ -519,15 +519,16 @@ if __name__ == "__main__":
     n_iterations = 5
     max_steps = 15
 
-    for rho in [0.6, 0.4]:
-        for tau in [0.03, 0.01]:
-            for length_scale in [1.0, 2.0, 2.5, 3.0, 4.0]:
+    for rho_env in [0.6, 0.4]:  # , 0.4
+        for tau in [0.03, 0.01]:  # , 0.01
+            for rho in [0.6, -0.2, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.8]:  # , -0.2, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.8,
                 exp_social_generalization_model(
                     n_seeds=n_seeds,
                     n_iterations=n_iterations,
                     max_steps=max_steps,
-                    length_scale_private=length_scale,
+                    rho=rho,
+                    # length_scale_private=length_scale,
                     # beta_private=beta,
                     # beta_social=beta,
-                    rho_child_child=rho
+                    rho_child_child=rho_env
                 )
