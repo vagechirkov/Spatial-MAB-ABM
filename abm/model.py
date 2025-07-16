@@ -144,6 +144,7 @@ class SocialGPModelSBI(mesa.Model):
             model_type: str = "SG",
             length_scale_private: float | None = 2.0,
             length_scale_social: float | None = 2.0,
+            length_scale_is_identical: bool = True,
             observation_noise_private: float | None = 0.1,
             observation_noise_social: float | None = 0.1,
             rho: float = 0.60,
@@ -157,6 +158,8 @@ class SocialGPModelSBI(mesa.Model):
         self.grid_size = grid_size
         self.model_type = model_type
         self.attention_budget = 4
+        if length_scale_is_identical:
+            length_scale_social = length_scale_private
 
         # generate network
         G = nx.complete_graph(n)
@@ -173,6 +176,7 @@ class SocialGPModelSBI(mesa.Model):
             ),
             length_scale_private=length_scale_private,
             length_scale_social=length_scale_social,
+            length_scale_is_identical=length_scale_is_identical,
             observation_noise_private=observation_noise_private,
             observation_noise_social=observation_noise_social,
             beta_private=beta_private,

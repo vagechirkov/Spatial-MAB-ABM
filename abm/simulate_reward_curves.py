@@ -43,6 +43,7 @@ def simulate(parameters):
                 rng=None,
                 length_scale_private=parameters[0],
                 length_scale_social=parameters[0],
+                length_scale_is_identical=True,
                 observation_noise_private=0.001,
                 observation_noise_social=0.001,
                 beta_private=parameters[2],
@@ -95,12 +96,12 @@ if __name__ == "__main__":
 
     theta = prior.sample((args.n_samples,))
     today_str = datetime.datetime.now().strftime("%Y%m%d")
-    np.save(f"simulation_outputs_vf_icm_5_par_e_soc_{today_str}_{args.n_samples}_theta.npy", theta.numpy())
+    np.save(f"simulation_outputs_vf_icm_4_par_{today_str}_{args.n_samples}_theta.npy", theta.numpy())
 
     start_time = time.time()
     simulation_outputs = parallel_simulate(theta)
     elapsed = time.time() - start_time
     print(f"Execution took {elapsed:.2f} seconds")
 
-    fname = f"simulation_outputs_vf_icm_5_par_e_soc_{today_str}_{args.n_samples}.npy"
+    fname = f"simulation_outputs_vf_icm_4_par_{today_str}_{args.n_samples}.npy"
     np.save(fname, simulation_outputs)
