@@ -399,21 +399,23 @@ def exp_env_size(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
     run.finish()
 
 
-def exp_social_generalization_model(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
-    model_type = "VF-ICM"  # # VF-ICM
+def exp_social_generalization_model(
+    n_seeds=200, n_iterations=1, max_steps=15, comparison_model_type="VF-ICM", **kwargs
+):
+    l_s_priv = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0)
     params = dict(
-        model_type=["AS", model_type],
+        model_type=["AS", comparison_model_type],
         n=4,
         grid_size=11,
         rho_child_child=0.6,
-        length_scale_private=(0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0),
+        length_scale_private=l_s_priv,
         length_scale_social=2.0,
         length_scale_is_identical=True,
         observation_noise_private=0.001,
         observation_noise_social=0.001,  # (0.001, 0.001*10, 0.001*100, 0.001*1000, 0.001*10_000, 0.001*100_000),
         beta_private=(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
         beta_social=0.7,
-        rho=0, # (-0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
+        rho=0,  # (-0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
         tau=0.03,
         seed=list(range(n_seeds)),
     )
@@ -496,7 +498,7 @@ def exp_social_generalization_model(n_seeds=200, n_iterations=1, max_steps=15, *
     ).reset_index()
 
     # Calculate the difference: VF-ICM minus AS
-    pivot["cumulative_reward_diff"] = pivot[model_type] - pivot["AS"]
+    pivot["cumulative_reward_diff"] = pivot[comparison_model_type] - pivot["AS"]
 
     # Prepare for heatmap plotting
     batch_results_diff = pivot
@@ -529,6 +531,7 @@ if __name__ == "__main__":
                     max_steps=max_steps,
                     # rho=rho,
                     observation_noise_social=o_n,
+                    comparison_model_type="SG",
                     # length_scale_private=length_scale,
                     # beta_private=beta,
                     # beta_social=beta,
