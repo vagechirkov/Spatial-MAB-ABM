@@ -531,7 +531,7 @@ if __name__ == "__main__":
                     max_steps=max_steps,
                     rho=rho,
                     # observation_noise_social=o_n,
-                    comparison_model_type="VF−ICM",
+                    comparison_model_type="VF-ICM",
                     # length_scale_private=length_scale,
                     # beta_private=beta,
                     # beta_social=beta,
