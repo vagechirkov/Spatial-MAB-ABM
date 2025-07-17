@@ -523,15 +523,15 @@ if __name__ == "__main__":
 
     for rho_env in [0.6, 0.4]:  # , 0.4
         for tau in [0.01]:  # , 0.01
-            for o_n in [0.001, 0.001*10, 0.001*100, 0.001*1000, 0.001*10_000, 0.001*20_000]:
-            # for rho in [0.6, -0.2, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.8]:  # , -0.2, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.8,
+            # for o_n in [0.001, 0.001*10, 0.001*100, 0.001*1000, 0.001*10_000, 0.001*20_000]:
+            for rho in [0.6, -0.2, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.8]:  # , -0.2, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.8,
                 exp_social_generalization_model(
                     n_seeds=n_seeds,
                     n_iterations=n_iterations,
                     max_steps=max_steps,
-                    # rho=rho,
-                    observation_noise_social=o_n,
-                    comparison_model_type="SG",
+                    rho=rho,
+                    # observation_noise_social=o_n,
+                    comparison_model_type="VF−ICM",
                     # length_scale_private=length_scale,
                     # beta_private=beta,
                     # beta_social=beta,
