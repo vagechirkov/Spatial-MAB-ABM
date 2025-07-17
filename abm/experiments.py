@@ -400,7 +400,7 @@ def exp_env_size(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
 
 
 def exp_social_generalization_model(
-    n_seeds=200, n_iterations=1, max_steps=15, comparison_model_type="VF-ICM", **kwargs
+    n_seeds=200, n_iterations=1, max_steps=15, comparison_model_type="SG-ICM", **kwargs
 ):
     l_s_priv = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0)
     params = dict(
@@ -531,7 +531,7 @@ if __name__ == "__main__":
                     max_steps=max_steps,
                     rho=rho,
                     # observation_noise_social=o_n,
-                    comparison_model_type="VF-ICM",
+                    comparison_model_type="SG-ICM",
                     # length_scale_private=length_scale,
                     # beta_private=beta,
                     # beta_social=beta,

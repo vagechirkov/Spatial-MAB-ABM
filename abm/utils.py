@@ -132,3 +132,16 @@ class MultiOutputICMKernel(Kernel):
 
     def is_stationary(self):
         return True
+
+
+def _stack_tasks(X_private, X_social_list):
+    X_p = np.hstack([X_private, np.zeros((len(X_private), 1))])
+    X_s = [
+        np.hstack([Xs, np.full((len(Xs), 1), k + 1)])
+        for k, Xs in enumerate(X_social_list)
+    ]
+    return np.vstack([X_p] + X_s)
+
+
+def _stack_targets(y_private, y_social_list):
+    return np.vstack([y_private] + y_social_list)

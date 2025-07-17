@@ -105,7 +105,6 @@ class SocialGPModel(mesa.Model):
             ),
             length_scale_private=length_scale_private,
             length_scale_social=length_scale_social,
-            length_scale_is_identical=length_scale_is_identical,
             observation_noise_private=observation_noise_private,
             observation_noise_social=observation_noise_social,
             beta_private=beta_private,
@@ -176,7 +175,6 @@ class SocialGPModelSBI(mesa.Model):
             ),
             length_scale_private=length_scale_private,
             length_scale_social=length_scale_social,
-            length_scale_is_identical=length_scale_is_identical,
             observation_noise_private=observation_noise_private,
             observation_noise_social=observation_noise_social,
             beta_private=beta_private,
@@ -211,9 +209,6 @@ class SocialGPModelSBI(mesa.Model):
                 "avg_choice_distance_social": lambda m: np.mean(
                     [a.avg_choice_distance_social for a in m.grid.agents]
                 ),
-                # "social_landscape_reconstruction_mse": lambda m: np.mean(
-                #     [a.social_landscape_reconstruction_mse for a in m.grid.agents]
-                # ),
             },
         )
 
@@ -273,30 +268,6 @@ class SocialGPModelReplication(mesa.Model):
 
         self.datacollector = DataCollector(
             model_reporters={
-                # "avg_cumulative_reward": lambda m: np.mean(
-                #     [a.total_reward for a in m.grid.agents]
-                # ),
-                # "avg_reward": lambda m: np.mean(
-                #     [a.last_reward for a in m.grid.agents]
-                # ),
-                # "last_choice_distance_private": lambda m: np.mean(
-                #     [a.last_choice_distance_private for a in m.grid.agents]
-                # ),
-                # "last_choice_distance_social": lambda m: np.mean(
-                #     [a.last_choice_distance_social for a in m.grid.agents]
-                # ),
-                # "nearest_choice_distance_private": lambda m: np.mean(
-                #     [a.nearest_choice_distance_private for a in m.grid.agents]
-                # ),
-                # "avg_choice_distance_private": lambda m: np.mean(
-                #     [a.avg_choice_distance_private for a in m.grid.agents]
-                # ),
-                # "nearest_choice_distance_social": lambda m: np.mean(
-                #     [a.nearest_choice_distance_social for a in m.grid.agents]
-                # ),
-                # "avg_choice_distance_social": lambda m: np.mean(
-                #     [a.avg_choice_distance_social for a in m.grid.agents]
-                # ),
                 "nll": lambda m: np.mean(
                     [a.neg_log_likelihood for a in m.grid.agents]
                 ),
@@ -310,22 +281,35 @@ class SocialGPModelReplication(mesa.Model):
 if __name__ == "__main__":
     import seaborn as sns
     import matplotlib.pyplot as plt
-    m = SocialGPModel(model_type="VF")
+    m = SocialGPModel(model_type="SG-ICM")
     for _ in range(15):
         m.step()
 
     param_grid = {
         "n": [4],
-        "model_type": ["SG"], # , "VS"
-        "length_scale_private": [1.11],
-        "length_scale_social":  [4],
+        "model_type": ["AS", "SG", "SG-ICM", "VS-F", "VS-CK"], # , "VS"
+        "length_scale_private": [1.11],  #
+        "length_scale_social": [1.11],
+        # "length_scale_private": [[2, 1.11, 1.11, 1.11], [1.11, 1.11, 1.11, 1.11]],
+        # "length_scale_private": [[2.5, 3, 3, 3], [3, 3, 3, 3]],
+        # "length_scale_private": [[0.5, 0.5, 0.5, 0.5], [2.5, 1, 1, 1], [1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3]],
         "observation_noise_private": [0.0001],
-        "observation_noise_social":  [3],  # , 20 , 0.0001 + 3  # 3, 50, 100, 200, 500
-        "beta_private":  [0.33],
+        "observation_noise_social":  [0.0001],  # , 20 , 0.0001 + 3  # 3, 50, 100, 200, 500
+        # "observation_noise_social":  [[0.01, 12, 12, 12], [3, 12, 12, 12], [12, 12, 12, 12]],
+        # "observation_noise_social":  [0.0001, 0.0005, 0.001, 0.1, 3, 12],
+        "beta_private": [0.33],
+        # "beta_private": [[0.6, 0.2, 0.2, 0.2], [0.2, 0.2, 0.2, 0.2]],
+        # "beta_private": [[0.6, 0.1, 0.1, 0.1], [0.1, 0.1, 0.1, 0.1]],
         "beta_social":   [0.33],
-        "tau": [[0.03, 0.03, 0.03, 0.05]],
-        "alpha": [0.5],
-        "seed": list(range(10))
+        # "tau": [[0.01, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04],
+        #         [0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04]],
+        # "tau": [[0.04, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
+        #         [0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01]],
+        # "tau": [[0.5, 0.01, 0.01, 0.01],
+        #         [0.01, 0.01, 0.01, 0.01]],
+        "tau": [0.03],
+        "rho": [0.5],
+        "seed": list(range(20))
     }
 
     batch_results = mesa.batch_run(
@@ -334,18 +318,22 @@ if __name__ == "__main__":
         iterations=1,
         max_steps=15,
         number_processes=None,
-        data_collection_period=-1,
+        data_collection_period=1,
         display_progress=True,
     )
 
     batch_results = pd.DataFrame(batch_results)
-    # batch_results.dropna(inplace=True)
-    #mask = (((batch_results["model_type"] == "SG") & (batch_results["observation_noise_social"] > 0.0001)) |
-    #        (batch_results["model_type"] == "VS") & (batch_results["observation_noise_social"]) <  12)
+    batch_results.dropna(inplace=True)
+    # mask = (((batch_results["model_type"] == "SG") & (batch_results["observation_noise_social"] > 0.0001)) |
+    #         (batch_results["model_type"] == "VS") & (batch_results["observation_noise_social"]) < 12)
+    # mask = batch_results["AgentID"] != 1.0
+
+    batch_results['tau_str'] = [str(l) for l in batch_results['tau'].to_list()]
+
     sns.lineplot(batch_results, # [mask],
                  x="Step",
                  y="reward",
-                 hue="observation_noise_social"  # "observation_noise_social" # "model_type"
+                 hue="model_type"  # "observation_noise_social" # "model_type"
                  )
     plt.show()
 

@@ -39,16 +39,15 @@ def simulate(parameters):
         for _ in range(1):  # environment is repeated only once
             _model = SocialGPModelSBI(
                 child_maps,
-                model_type="VF-ICM",
+                model_type="SG", # "SG-ICM",
                 rng=None,
                 length_scale_private=parameters[0],
                 length_scale_social=parameters[0],
-                length_scale_is_identical=True,
                 observation_noise_private=0.001,
-                observation_noise_social=0.001,
+                observation_noise_social=parameters[1], #0.001,
                 beta_private=parameters[2],
                 beta_social=parameters[2],
-                rho=parameters[1],
+                # rho=parameters[1],
                 tau=parameters[3]
             )
 

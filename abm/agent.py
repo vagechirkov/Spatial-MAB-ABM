@@ -1,30 +1,23 @@
 import numpy as np
 from mesa.discrete_space import CellAgent
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF
+from sklearn.gaussian_process.kernels import RBF, Kernel
 
+from abm.utils import _stack_targets, _stack_tasks
 from utils import ICMKernel, LMCKernel
-
-
-def step_distance(x):
-    if len(x) < 2:
-        return 0
-    choice = np.asarray(x[-1], dtype=float)
-    previous_choice = np.asarray(x[-2], dtype=float)
-    return float(np.linalg.norm(choice - previous_choice))
 
 
 def gp_base_generalization(
     X_obs: np.ndarray,
     y_obs: np.ndarray,
     X_predict: np.ndarray,
-    length_scale: float,
+    kernel: Kernel,
     observation_noise: np.ndarray | float,
     rng,
 ):
     """Fit a zero-mean GP and return μ, σ on the prediction grid."""
     gpr = GaussianProcessRegressor(
-        kernel=RBF(length_scale=length_scale),
+        kernel=kernel,
         alpha=observation_noise,
         random_state=rng,
         optimizer=None,
@@ -34,17 +27,22 @@ def gp_base_generalization(
     return gpr.predict(X_predict, return_std=True)
 
 def asocial_generalization(
-        X_obs: np.ndarray,
-        y_obs: np.ndarray,
-        X_predict: np.ndarray,
-        length_scale: float,
-        observation_noise: float,
-        beta: float,
-        tau: float,
-        random_state,
+    X_obs: np.ndarray,
+    y_obs: np.ndarray,
+    X_predict: np.ndarray,
+    length_scale: float,
+    observation_noise: float,
+    beta: float,
+    tau: float,
+    random_state,
 ):
     gp_mean, gp_std = gp_base_generalization(
-        X_obs, y_obs, X_predict, length_scale, np.ones(len(y_obs)) * observation_noise, random_state
+        X_obs,
+        y_obs,
+        X_predict,
+        RBF(length_scale=length_scale),
+        np.ones(len(y_obs)) * observation_noise,
+        random_state,
     )
     value_ucb = gp_mean + beta * gp_std
     return np.exp(value_ucb / tau)
@@ -75,7 +73,12 @@ def social_generalization(
     y_obs = np.vstack([y_obs_private] + y_obs_social)
 
     gp_mean, gp_std = gp_base_generalization(
-        X_obs, y_obs, X_predict, length_scale, observation_noise, random_state
+        X_obs,
+        y_obs,
+        X_predict,
+        RBF(length_scale=length_scale),
+        observation_noise,
+        random_state,
     )
     value_ucb = gp_mean + beta * gp_std
     if subtract_max_value:
@@ -98,18 +101,19 @@ def value_shaping(
     alpha: float,
     tau: float,
     random_state,
-    value_shaping_type: str = "linear_weight"
+    value_shaping_type: str = "F"
 ) -> np.ndarray:
     assert len(X_obs_private) > 0
     assert len(X_obs_social) > 0
-    assert value_shaping_type in ["naive", "linear_weight", "correlated_kalman"]
+    # N = Naive, F = Full linear weight, CK = Correlated Kalman
+    assert value_shaping_type in ["N", "F", "CK"]
 
     # Private GP
     gp_mean_p, gp_std_p = gp_base_generalization(
         X_obs_private,
         y_obs_private,
         X_predict,
-        length_scale_private,
+        RBF(length_scale=length_scale_private),
         np.ones(len(X_obs_private)) * observation_noise_private,
         random_state,
     )
@@ -118,16 +122,16 @@ def value_shaping(
     value_final = value_ucb_private.copy()
 
     # Social GPs (one per neighbor)
-    if value_shaping_type == "naive":
+    if value_shaping_type == "N":
         value_ucb_social = ...
-    elif value_shaping_type == "linear_weight":
+    elif value_shaping_type == "F":
         ucb_s_list = []
         for xs, ys in zip(X_obs_social, y_obs_social):
             gp_mean_s, gp_std_s = gp_base_generalization(
                 xs,
                 ys,
                 X_predict,
-                length_scale_social,
+                RBF(length_scale=length_scale_social),
                 np.ones(len(xs)) * observation_noise_social,
                 random_state,
                 )
@@ -135,14 +139,14 @@ def value_shaping(
 
         value_ucb_social = np.mean(np.vstack(ucb_s_list), axis=0)
         value_final = (1.0 - alpha) * value_ucb_private + alpha * value_ucb_social
-    elif value_shaping_type == "correlated_kalman":
+    elif value_shaping_type == "CK":
         ucb_s_list, w_priv_raw_list, w_soc_raw_list = [], [], []
         for xs, ys in zip(X_obs_social, y_obs_social):
             gp_mean_s, gp_std_s = gp_base_generalization(
                 xs,
                 ys,
                 X_predict,
-                length_scale_social,
+                RBF(length_scale=length_scale_social),
                 np.ones(len(xs)) * observation_noise_social,
                 random_state,
                 )
@@ -174,20 +178,7 @@ def value_shaping(
     return np.exp(value_final / tau)  # unnormalised soft-max
 
 
-def _stack_tasks(X_private, X_social_list):
-    X_p = np.hstack([X_private, np.zeros((len(X_private), 1))])
-    X_s = [
-        np.hstack([Xs, np.full((len(Xs), 1), k + 1)])
-        for k, Xs in enumerate(X_social_list)
-    ]
-    return np.vstack([X_p] + X_s)
-
-
-def _stack_targets(y_private, y_social_list):
-    return np.vstack([y_private] + y_social_list)
-
-
-def value_fusion_icm(
+def social_generalization_icm(
     X_obs_private,
     y_obs_private,
     X_obs_social,
@@ -195,46 +186,46 @@ def value_fusion_icm(
     X_predict,
     length_scale_private: float,
     length_scale_social: float,
-    length_scale_is_identical: bool,
     observation_noise_private,
     observation_noise_social,
     beta,
     rho,
     tau,
     random_state,
+    model="ICM",
 ):
     X_all = _stack_tasks(X_obs_private, X_obs_social)
     Y_all = _stack_targets(y_obs_private, y_obs_social)
 
-    if length_scale_is_identical:
+    if model == "ICM":
         kernel = ICMKernel(length_scale=length_scale_private, rho=rho)
-    else:
+    elif model == "LCM":
         kernel = LMCKernel(
             length_scale_private=length_scale_private,
             length_scale_social=length_scale_social,
             rho=rho,
         )
+    else:
+        raise NotImplementedError(f"{model} is not implemented.")
 
     observation_noise = np.hstack(
         [np.ones(len(y_obs_private)) * observation_noise_private]
         + [np.ones(len(y_soc)) * observation_noise_social for y_soc in y_obs_social]
     )
 
-    gpr = GaussianProcessRegressor(
-        kernel=kernel,
-        alpha=observation_noise,
-        optimizer=None,
-        normalize_y=False,
-        random_state=random_state,
-    )
-    gpr.fit(X_all, Y_all.ravel())
-
+    # make a prediction for private output channel only
     X_star_priv = np.hstack([X_predict, np.zeros((len(X_predict), 1))])
-    mu, std = gpr.predict(X_star_priv, return_std=True)
+    gp_mean_p, gp_std_p = gp_base_generalization(
+        X_all,
+        Y_all.ravel(),
+        X_star_priv,
+        kernel,
+        observation_noise,
+        random_state,
+    )
 
-    ucb = mu.reshape(-1, 1) + beta * std.reshape(-1, 1)
-    logits = np.exp(ucb / tau)
-    return logits
+    ucb = gp_mean_p.reshape(-1, 1) + beta * gp_std_p.reshape(-1, 1)
+    return np.exp(ucb / tau)
 
 
 class SocialGPAgent(CellAgent):
@@ -253,7 +244,6 @@ class SocialGPAgent(CellAgent):
         beta_social: float,
         tau: float,
         rho: float,
-        length_scale_is_identical: bool = False,
     ):
         super().__init__(model)
 
@@ -266,9 +256,6 @@ class SocialGPAgent(CellAgent):
         # hyperparameters
         self.length_scale_private = length_scale_private
         self.length_scale_social = length_scale_social
-        self.length_scale_is_identical = length_scale_is_identical
-        if length_scale_is_identical:
-            assert np.abs(length_scale_private - length_scale_social) < 0.01, "Length scales are not identical"
 
         self.observation_noise_private = observation_noise_private
         self.observation_noise_social = observation_noise_social
@@ -288,8 +275,12 @@ class SocialGPAgent(CellAgent):
             range(reward_environment.shape[0]), range(reward_environment.shape[1])
         )
         self.meshgrid_flatten = np.array(self.meshgrid, dtype=np.int32).reshape(2, -1).T
-        self.meshgrid_dict = {tuple(coord): i for i, coord in enumerate(self.meshgrid_flatten)}
-        self.uniform_probs = np.ones(len(self.meshgrid_flatten)) / len(self.meshgrid_flatten)
+        self.meshgrid_dict = {
+            tuple(coord): i for i, coord in enumerate(self.meshgrid_flatten)
+        }
+        self.uniform_probs = np.ones(len(self.meshgrid_flatten)) / len(
+            self.meshgrid_flatten
+        )
         self.policy = self.uniform_probs.copy()
 
     @property
@@ -351,30 +342,6 @@ class SocialGPAgent(CellAgent):
         social_choices = np.vstack(X_soc)
         cur = np.asarray(self.X_observations[-1])
         return float(np.mean(np.linalg.norm(cur - social_choices, axis=-1)))
-
-    @property
-    def private_landscape_reconstruction_mse(self) -> float:
-        if len(self.X_observations) < 1:
-            return 0
-        X_priv = np.array(self.X_observations)
-        y_priv = np.array(self.y_observations).reshape(-1, 1)
-        gp_mean_p, _ = gp_base_generalization(
-            X_priv,
-            y_priv,
-            self.meshgrid_flatten,
-            length_scale=2,
-            observation_noise=np.ones(len(X_priv)) * 1e-10,
-            rng=self.model.rng.__getstate__()
-            )
-        return float(np.square(self.reward_environment.T.ravel() - gp_mean_p).sum())
-
-    @property
-    def social_landscape_reconstruction_mse(self) -> float:
-        neighbours = list(self.model.grid[self.cell.coordinate].neighborhood)
-        mses = [self.private_landscape_reconstruction_mse] + [
-            n.agents[0].private_landscape_reconstruction_mse for n in neighbours
-        ]
-        return float(np.mean(mses))
 
     @property
     def neg_log_likelihood(self) -> float:
@@ -441,9 +408,9 @@ class SocialGPAgent(CellAgent):
                 random_state=self.model.rng.__getstate__(),
                 subtract_max_value=True
             )
-        elif self.model.model_type == "VF-ICM":
+        elif self.model.model_type in ["VS-N", "VS-F", "VS-CK"]:
             X_soc, y_soc = self._gather_social_info()
-            logits = value_fusion_icm(
+            logits = value_shaping(
                 X_priv,
                 y_priv,
                 X_soc,
@@ -451,15 +418,32 @@ class SocialGPAgent(CellAgent):
                 self.meshgrid_flatten,
                 length_scale_private=self.length_scale_private,
                 length_scale_social=self.length_scale_social,
-                length_scale_is_identical=self.length_scale_is_identical,
+                observation_noise_private=self.observation_noise_private,
+                observation_noise_social=self.observation_noise_social,
+                beta_private=self.beta_private,
+                beta_social=self.beta_social,
+                alpha=self.rho,
+                tau=self.tau,
+                random_state=self.model.rng.__getstate__(),
+                value_shaping_type=self.model.model_type.split("-")[1]
+            )
+        elif self.model.model_type in ["SG-ICM", "SG-LCM"]:
+            X_soc, y_soc = self._gather_social_info()
+            logits = social_generalization_icm(
+                X_priv,
+                y_priv,
+                X_soc,
+                y_soc,
+                self.meshgrid_flatten,
+                length_scale_private=self.length_scale_private,
+                length_scale_social=self.length_scale_social,
                 observation_noise_private=self.observation_noise_private,
                 observation_noise_social=self.observation_noise_social,
                 beta=self.beta_private,
-                # beta_private=self.beta_private,
-                # beta_social=self.beta_social,
-                rho=self.rho,  # rho values per social info
+                rho=self.rho,
                 tau=self.tau,
-                random_state=self.model.rng.__getstate__()
+                random_state=self.model.rng.__getstate__(),
+                model=self.model.model_type.split("-")[1]
             )
         elif self.model.model_type == "AS":
             logits = asocial_generalization(
@@ -479,7 +463,6 @@ class SocialGPAgent(CellAgent):
         probs = logits.ravel()
 
         if "fitting" in self.model.model_type:
-            # quick fix, consider adjusting gamma priors instead
             probs[probs / np.sum(probs) == 0] = 0.001 * np.sum(probs)
             probs[probs < 0] = 0.001 * np.sum(probs)
             probs = probs / np.sum(probs)
