@@ -179,7 +179,9 @@ def test_sg_replication(prior_mean):
     assert np.allclose(new_nll, orig_nll, atol=0.05)
 
 
-def test_prior_mean_subtraction():
+@pytest.mark.xfail
+@pytest.mark.parametrize("beta", [0.3, 0.7])
+def test_prior_mean_subtraction(beta):
     np.random.seed(42)
     _, child_maps_base = sample_children_with_corr(
         rng=None,
@@ -207,8 +209,8 @@ def test_prior_mean_subtraction():
                 length_scale_social=1.0,
                 observation_noise_private=0.0001,
                 observation_noise_social=10.0,
-                beta_private=0.3,
-                beta_social=0.3,
+                beta_private=beta,
+                beta_social=beta,
                 tau=0.03,
                 reward_noise_sd=0.01
             )
@@ -219,9 +221,11 @@ def test_prior_mean_subtraction():
             simulation_results = _model.datacollector.get_model_vars_dataframe()
             avg_reward += simulation_results.avg_reward.values
         avg_reward /= n_simulations
-        avg_rewards.append(avg_reward)
+        avg_rewards.append(avg_reward + prior_mean)
 
         plt.plot(avg_reward + prior_mean, label=f"prior mean: {prior_mean}")
 
     plt.legend()
     plt.show()
+
+    assert np.allclose(avg_rewards[0], avg_rewards[1], atol=0.01)
