@@ -263,7 +263,7 @@ class SocialGPModelReplication(mesa.Model):
             beta_private=beta,
             beta_social=beta,
             tau=tau,
-            alpha=None
+            rho=None
         )
 
         self.datacollector = DataCollector(

@@ -16,8 +16,9 @@ warnings.filterwarnings(
 
 Xstar = np.array([(x, y) for x in range(11) for y in range(11)])
 
-def _run_simulation(x, data):
-    nll = 0.0
+def _run_simulation(x, data, subtract_reward=0, full_nll=False, search_horizon=15):
+    nll = []
+    policy_list = []
     for r in np.unique(data["round"]):
         agent_trials = data.loc[(data["round"] == r)].sort_values("trial")
 
@@ -26,14 +27,14 @@ def _run_simulation(x, data):
             for col in ["soc_choice1", "soc_choice2", "soc_choice3"]
         ]
         social_rewards = [
-            agent_trials[col].values[1:]
+            agent_trials[col].values[1:] - subtract_reward
             for col in ["soc_rew1", "soc_rew2", "soc_rew3"]
         ]
         _model = SocialGPModelReplication(
             social_choices=social_choices,
             social_rewards=social_rewards,
             individual_choices=Xstar[np.int32(agent_trials["choice"].values)],
-            individual_rewards=agent_trials["reward"].values,
+            individual_rewards=agent_trials["reward"].values - subtract_reward,
             random_choices=agent_trials["isRandom"].values == 1,
             model_type="SG_fitting",
             length_scale=np.exp(x[0]),
@@ -44,12 +45,17 @@ def _run_simulation(x, data):
             reward_map=None
         )
 
-        for _ in range(15):
+        for _step in range(search_horizon):
             _model.step()
+            if full_nll and (_step != 0):
+                policy_list.append(_model.agents[0].policy)
 
         results = _model.datacollector.get_model_vars_dataframe()
-        nll += results['nll'].sum()
-    return nll
+        nll += results.loc[1:, 'nll'].tolist()
+    if full_nll:
+        return nll, policy_list
+    else:
+        return sum(nll)
 
 
 def replicate_model_fitting():

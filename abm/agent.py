@@ -348,7 +348,7 @@ class SocialGPAgent(CellAgent):
         last_choice_is_random = self.model.random_choices[self.model.steps - 1]
         if (self.model.steps == 1) or last_choice_is_random:
             return 0.0
-        return -np.log(self.policy[self.meshgrid_dict[self.last_choice]])
+        return -np.log(self.policy[self.meshgrid_dict[self.X_observations[-1]]])
 
     def _gather_social_info(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         neighbours = list(self.model.grid[self.cell.coordinate].neighborhood)
@@ -392,8 +392,8 @@ class SocialGPAgent(CellAgent):
                 random_state=self.model.rng.__getstate__()
             )
         elif self.model.model_type == "SG_fitting":
-            X_soc = [s_c[:self.model.steps] for s_c in self.model.social_choices]
-            y_soc = [s_r[:self.model.steps].reshape(-1, 1) for s_r in self.model.social_rewards]
+            X_soc = [s_c[:self.model.steps - 1] for s_c in self.model.social_choices]
+            y_soc = [s_r[:self.model.steps - 1].reshape(-1, 1) for s_r in self.model.social_rewards]
             logits = social_generalization(
                 X_priv,
                 y_priv,
@@ -466,13 +466,8 @@ class SocialGPAgent(CellAgent):
             probs[probs / np.sum(probs) == 0] = 0.001 * np.sum(probs)
             probs[probs < 0] = 0.001 * np.sum(probs)
             probs = probs / np.sum(probs)
-
             self.policy = probs
             inx = self.model.steps - 1
-            if inx == 1:
-                # overwrite random choice
-                self.X_observations[0] = self.model.individual_choices[0]
-                self.y_observations[0] = self.model.individual_rewards[0]
             coord = tuple(self.model.individual_choices[inx])
             self.X_observations.append(coord)
             self.y_observations.append(self.model.individual_rewards[inx])
@@ -488,7 +483,11 @@ class SocialGPAgent(CellAgent):
     def step(self):
         # first choice is random
         if len(self.X_observations) == 0:
-            self._random_choice()
+            if "fitting" in self.model.model_type:
+                self.X_observations.append(tuple(self.model.individual_choices[0]))
+                self.y_observations.append(self.model.individual_rewards[0])
+            else:
+                self._random_choice()
             return
 
         self._make_choice()
