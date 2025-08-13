@@ -1,11 +1,12 @@
-import json
-
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import pytest
 
-from abm.model import SocialGPModelSBI  # , SocialGPModelReplication
+from abm.model import SocialGPModelSBI
 from abm.original_sg_model import model_fit, model_sim_orig, param_gen
 from abm.replication import _run_simulation
+from abm.rewards import sample_children_with_corr
 
 
 def _env_to_array(env_data):
@@ -20,61 +21,96 @@ def _env_to_array(env_data):
 
     return arr
 
+def _array_to_env(arr):
+    env_data = []
+    for y in range(arr.shape[1]):
+        for x in range(arr.shape[0]):
+            env_data.append({"x1": x + 1, "x2": y + 1, "payoff": arr[y, x]})
+    return env_data
 
-def test_sg_simulation():
-    f = open("tests/test_A_canon.json")
-    test_env = json.load(f)
+
+@pytest.mark.parametrize("eps_soc", [1.0, 10.0])
+@pytest.mark.parametrize("beta", [0.3, 0.7])
+def test_sg_simulation(eps_soc, beta):
+    np.random.seed(42)
+    _, child_maps = sample_children_with_corr(
+        rng=None,
+        n_children=4,
+        length_scale=2.0,
+        rho_parent_child=0.6,
+        rho_child_child=0.6,
+        tol=0.1,
+        max_tries=1000
+    )
+
+    n_simulations = 200
 
     pars = param_gen(4, 1, hom=True, models=3)  # 3 = SG model
     for i in range(4):
         pars[0][i]['lambda'] = 1.0
-        pars[0][i]['eps_soc'] = 10.0
-        pars[0][i]['beta'] = 0.3
+        pars[0][i]['eps_soc'] = eps_soc
+        pars[0][i]['beta'] = beta
         pars[0][i]['tau'] = 0.03
 
-    envList = []
-    for _ in range(5):
-        envList.append(test_env)
+    envList = [[_array_to_env(c)] for c in child_maps]
+
+    plt.imshow(child_maps[0])
+    plt.show()
+    plt.imshow(child_maps[1])
+    plt.show()
+
 
     np.random.seed(42)
     simulation_results_orig = model_sim_orig(
         pars,
         envList,
-        1,
+        n_simulations,
         15,
         payoff=True,
-        prior_mean=0,
+        prior_mean=0.5,
         prior_scale=1,
         baseEpsilon=0.0001,
-        add_noize_to_rewards=False
+        add_noize_to_rewards=True
     )
-    avg_reward_orig = simulation_results_orig.groupby(["trial"]).reward.mean()
-
-    child_maps = [_env_to_array(env) for env in test_env]
+    avg_reward_orig = simulation_results_orig.groupby(["trial"]).reward.mean().values
 
     np.random.seed(42)
-    _model = SocialGPModelSBI(
-        child_maps,
-        model_type="SG",
-        rng=None,
-        length_scale_private=pars[0][0]['lambda'],
-        length_scale_social=pars[0][0]['lambda'],
-        observation_noise_private=0.0001,
-        observation_noise_social=pars[0][0]['eps_soc'], #0.001,
-        beta_private=pars[0][0]['beta'],
-        beta_social=pars[0][0]['beta'],
-        # rho=parameters[1],
-        tau=pars[0][0]['tau']
-    )
+    avg_reward_new = np.zeros_like(avg_reward_orig)
+    child_maps = [m - 0.5 for m in child_maps]
+    
+    for r in range(n_simulations):
+        _model = SocialGPModelSBI(
+            child_maps=child_maps,
+            model_type="SG",
+            rng=None,
+            length_scale_private=pars[0][0]['lambda'],
+            length_scale_social=pars[0][0]['lambda'],
+            observation_noise_private=0.0001,
+            observation_noise_social=pars[0][0]['eps_soc'],
+            beta_private=pars[0][0]['beta'],
+            beta_social=pars[0][0]['beta'],
+            tau=pars[0][0]['tau'],
+            reward_noise_sd=0.01
+        )
 
-    for _ in range(15):
-        _model.step()
+        for _ in range(15):
+            _model.step()
 
-    simulation_results = _model.datacollector.get_model_vars_dataframe()
-    avg_reward_new = simulation_results.avg_reward
+        simulation_results = _model.datacollector.get_model_vars_dataframe()
+        avg_reward_new += simulation_results.avg_reward.values
+    avg_reward_new /= n_simulations
+    avg_reward_diff = avg_reward_orig - avg_reward_new
 
-    avg_reward_diff = avg_reward_new.values - avg_reward_orig.values
-    assert np.allclose(avg_reward_new.values, avg_reward_orig.values)
+    plt.plot(avg_reward_diff)
+    plt.ylim([-0.05, 0.05])
+    plt.show()
+
+    plt.plot(avg_reward_orig, label="original")
+    plt.plot(avg_reward_new, label="new")
+    plt.legend()
+    plt.show()
+
+    assert np.allclose(avg_reward_new, avg_reward_orig, atol=0.05)
 
 
 def test_sg_replication():
@@ -117,7 +153,6 @@ def test_sg_replication():
     orig_policy = np.array(orig_policy)
     new_policy = np.array(new_policy)
 
-    import matplotlib.pyplot as plt
     for i in range(7):
         plt.plot(diff_nll[i * 14: (i + 1) * 14], label="round {}".format(i))
     plt.legend()

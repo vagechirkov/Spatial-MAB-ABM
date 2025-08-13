@@ -150,6 +150,7 @@ class SocialGPModelSBI(mesa.Model):
             beta_private: float | None = 0.7,
             beta_social: float | None = 0.7,
             tau: float = 1.0,
+            reward_noise_sd : float = 0,
     ):
         super().__init__(rng=rng)
 
@@ -157,6 +158,8 @@ class SocialGPModelSBI(mesa.Model):
         self.grid_size = grid_size
         self.model_type = model_type
         self.attention_budget = 4
+        self.reward_noise_sd = reward_noise_sd
+
         if length_scale_is_identical:
             length_scale_social = length_scale_private
 

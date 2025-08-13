@@ -67,7 +67,10 @@ def social_generalization(
 
     observation_noise = np.hstack(
         [np.ones(len(y_obs_private)) * observation_noise_private]
-        + [np.ones(len(y_soc)) * observation_noise_social for y_soc in y_obs_social]
+        + [
+            np.ones(len(y_soc)) * observation_noise_social + observation_noise_private
+            for y_soc in y_obs_social
+        ]
     )
     X_obs = np.vstack([X_obs_private] + X_obs_social)
     y_obs = np.vstack([y_obs_private] + y_obs_social)
@@ -272,7 +275,8 @@ class SocialGPAgent(CellAgent):
 
         # prediction grid
         self.meshgrid = np.meshgrid(
-            range(reward_environment.shape[0]), range(reward_environment.shape[1])
+            range(reward_environment.shape[0]),
+            range(reward_environment.shape[1])
         )
         self.meshgrid_flatten = np.array(self.meshgrid, dtype=np.int32).reshape(2, -1).T
         self.meshgrid_dict = {
@@ -357,7 +361,7 @@ class SocialGPAgent(CellAgent):
 
         X_soc, y_soc = [], []
         # observe only the choices before the last step
-        history_horizon = self.model.steps - 1
+        history_horizon =self.model.steps - 1
 
         for neighbour in neighbours:
             neighbor_agent = neighbour.agents[0]
@@ -365,10 +369,17 @@ class SocialGPAgent(CellAgent):
             y_soc.append(np.array(neighbor_agent.y_observations[:history_horizon]).reshape(-1, 1))
         return X_soc, y_soc
 
+    def _add_noise_to_reward(self, reward: float):
+        added_noise = 0
+        if hasattr(self.model, "reward_noise_sd") and (self.model.reward_noise_sd > 0):
+            added_noise = self.rng.normal(0, self.model.reward_noise_sd)
+        return reward + added_noise
+
     def _random_choice(self) -> None:
-        idx = self.model.rng.choice(len(self.uniform_probs), p=self.uniform_probs)
+        idx = self.model.random.randint(0, len(self.meshgrid_flatten) - 1)
         coord = tuple(self.meshgrid_flatten[idx])
         reward = float(self.reward_environment[coord])
+        reward = self._add_noise_to_reward(reward)
         self.X_observations.append(coord)
         self.y_observations.append(reward)
 
@@ -376,24 +387,12 @@ class SocialGPAgent(CellAgent):
         X_priv = np.array(self.X_observations)
         y_priv = np.array(self.y_observations).reshape(-1, 1)
 
-        if self.model.model_type == "SG":
-            X_soc, y_soc = self._gather_social_info()
-            logits = social_generalization(
-                X_priv,
-                y_priv,
-                X_soc,
-                y_soc,
-                self.meshgrid_flatten,
-                length_scale=self.length_scale_private,
-                observation_noise_private=self.observation_noise_private,
-                observation_noise_social=self.observation_noise_social,
-                beta=self.beta_private,
-                tau=self.tau,
-                random_state=self.model.rng.__getstate__()
-            )
-        elif self.model.model_type == "SG_fitting":
-            X_soc = [s_c[:self.model.steps - 1] for s_c in self.model.social_choices]
-            y_soc = [s_r[:self.model.steps - 1].reshape(-1, 1) for s_r in self.model.social_rewards]
+        if "SG" in self.model.model_type:
+            if "fitting" in self.model.model_type:
+                X_soc = [s_c[:self.model.steps - 1] for s_c in self.model.social_choices]
+                y_soc = [s_r[:self.model.steps - 1].reshape(-1, 1) for s_r in self.model.social_rewards]
+            else:
+                X_soc, y_soc = self._gather_social_info()
             logits = social_generalization(
                 X_priv,
                 y_priv,
@@ -459,26 +458,22 @@ class SocialGPAgent(CellAgent):
         else:
             raise ValueError(f"Unknown model_type '{self.model.model_type}'")
 
-        # sample next arm
         probs = logits.ravel()
+        probs /= probs.sum() + 1e-12
+        self.policy = probs
 
         if "fitting" in self.model.model_type:
-            probs[probs / np.sum(probs) == 0] = 0.001 * np.sum(probs)
-            probs[probs < 0] = 0.001 * np.sum(probs)
-            probs = probs / np.sum(probs)
-            self.policy = probs
             inx = self.model.steps - 1
             coord = tuple(self.model.individual_choices[inx])
-            self.X_observations.append(coord)
-            self.y_observations.append(self.model.individual_rewards[inx])
+            reward = self.model.individual_rewards[inx]
         else:
-            probs /= probs.sum() + 1e-12
-            self.policy = probs
             idx = self.model.rng.choice(len(self.policy), p=self.policy)
             coord = tuple(self.meshgrid_flatten[idx])
             reward = float(self.reward_environment[coord])
-            self.X_observations.append(coord)
-            self.y_observations.append(reward)
+            reward = self._add_noise_to_reward(reward)
+
+        self.X_observations.append(coord)
+        self.y_observations.append(reward)
 
     def step(self):
         # first choice is random
