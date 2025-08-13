@@ -3,8 +3,7 @@ from mesa.discrete_space import CellAgent
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, Kernel
 
-from abm.utils import _stack_targets, _stack_tasks
-from utils import ICMKernel, LMCKernel
+from utils import ICMKernel, LMCKernel, _stack_targets, _stack_tasks
 
 
 def gp_base_generalization(
@@ -361,7 +360,7 @@ class SocialGPAgent(CellAgent):
 
         X_soc, y_soc = [], []
         # observe only the choices before the last step
-        history_horizon =self.model.steps - 1
+        history_horizon = self.model.steps - 1
 
         for neighbour in neighbours:
             neighbor_agent = neighbour.agents[0]

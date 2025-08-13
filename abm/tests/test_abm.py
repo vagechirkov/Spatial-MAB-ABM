@@ -31,7 +31,8 @@ def _array_to_env(arr):
 
 @pytest.mark.parametrize("eps_soc", [1.0, 10.0])
 @pytest.mark.parametrize("beta", [0.3, 0.7])
-def test_sg_simulation(eps_soc, beta):
+@pytest.mark.parametrize("prior_mean", [0.0])  # , 0.5
+def test_sg_simulation(eps_soc, beta, prior_mean):
     np.random.seed(42)
     _, child_maps = sample_children_with_corr(
         rng=None,
@@ -67,7 +68,7 @@ def test_sg_simulation(eps_soc, beta):
         n_simulations,
         15,
         payoff=True,
-        prior_mean=0.5,
+        prior_mean=prior_mean,
         prior_scale=1,
         baseEpsilon=0.0001,
         add_noize_to_rewards=True
@@ -76,7 +77,7 @@ def test_sg_simulation(eps_soc, beta):
 
     np.random.seed(42)
     avg_reward_new = np.zeros_like(avg_reward_orig)
-    child_maps = [m - 0.5 for m in child_maps]
+    child_maps = [m - prior_mean for m in child_maps]
     
     for r in range(n_simulations):
         _model = SocialGPModelSBI(
@@ -113,7 +114,8 @@ def test_sg_simulation(eps_soc, beta):
     assert np.allclose(avg_reward_new, avg_reward_orig, atol=0.05)
 
 
-def test_sg_replication():
+@pytest.mark.parametrize("prior_mean", [0.0, 0.5])  # , 0.5
+def test_sg_replication(prior_mean):
     data = pd.read_csv("data/e1_data.csv")
     agent = 1
     group = 0
@@ -131,11 +133,12 @@ def test_sg_replication():
         ].reset_index(drop=True)
 
     np.random.seed(2023)
-    new_nll, new_policy = _run_simulation(params, data_new, subtract_reward=0.5, full_nll=True, search_horizon=shor)
+    new_nll, new_policy = _run_simulation(params, data_new, subtract_reward=prior_mean,
+                                          full_nll=True, search_horizon=shor)
 
     # old fitting procedure
     subdata = data.loc[(data['group']==group)]
-    subdata.loc[:,"reward"] = subdata["reward"]-0.5
+    subdata.loc[:,"reward"] = subdata["reward"] - prior_mean
 
     tardata = subdata.loc[(subdata['agent']==agent) &
                           (subdata['round']!=round_test),
@@ -176,4 +179,49 @@ def test_sg_replication():
     assert np.allclose(new_nll, orig_nll, atol=0.05)
 
 
+def test_prior_mean_subtraction():
+    np.random.seed(42)
+    _, child_maps_base = sample_children_with_corr(
+        rng=None,
+        n_children=4,
+        length_scale=2.0,
+        rho_parent_child=0.6,
+        rho_child_child=0.6,
+        tol=0.1,
+        max_tries=1000
+    )
 
+    n_simulations = 200
+    avg_rewards = []
+
+    for prior_mean in [0.0, 0.5]:
+        avg_reward = np.zeros(15)
+        child_maps = [m - prior_mean for m in child_maps_base]
+
+        for r in range(n_simulations):
+            _model = SocialGPModelSBI(
+                child_maps=child_maps,
+                model_type="SG",
+                rng=None,
+                length_scale_private=1.0,
+                length_scale_social=1.0,
+                observation_noise_private=0.0001,
+                observation_noise_social=10.0,
+                beta_private=0.3,
+                beta_social=0.3,
+                tau=0.03,
+                reward_noise_sd=0.01
+            )
+
+            for _ in range(15):
+                _model.step()
+
+            simulation_results = _model.datacollector.get_model_vars_dataframe()
+            avg_reward += simulation_results.avg_reward.values
+        avg_reward /= n_simulations
+        avg_rewards.append(avg_reward)
+
+        plt.plot(avg_reward + prior_mean, label=f"prior mean: {prior_mean}")
+
+    plt.legend()
+    plt.show()
