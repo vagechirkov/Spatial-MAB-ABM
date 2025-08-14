@@ -36,6 +36,9 @@ def simulate(parameters):
             max_tries=1000
         )
 
+        # make the reward maps centered on 0
+        child_maps = [c - 0.5 for c in child_maps]
+
         for _ in range(1):  # environment is repeated only once
             _model = SocialGPModelSBI(
                 child_maps,
@@ -48,12 +51,14 @@ def simulate(parameters):
                 beta_private=parameters[2],
                 beta_social=parameters[2],
                 # rho=parameters[1],
-                tau=parameters[3]
+                tau=parameters[3],
+                reward_noise_sd=0.01
             )
 
             for _ in range(15):
                 _model.step()
             results = _model.datacollector.get_model_vars_dataframe()
+            results["avg_reward"] = results["avg_reward"].values + 0.5
             repetitions.append(results.loc[:, columns].to_numpy())
 
     return np.mean(repetitions, axis=0)
@@ -79,12 +84,14 @@ if __name__ == "__main__":
     parser.add_argument("--n_samples",
                         type=int, default=5_000, help="Number of samples to draw from the prior")
     args = parser.parse_args()
+    lb = [0.1, 0.0001, 0.01, 0.01]
+    up = [5.0, 20, 2.0, 0.1]
 
     # lb = [0.1, 0.1, 0, 0.01, 0.01]
     # up = [5.0, 5.0, 1, 2.0, 0.1]
 
-    lb = [0.1, -0.25, 0.01, 0.01]
-    up = [5.0,  1, 2.0, 0.1]
+    # lb = [0.1, -0.25, 0.01, 0.01]
+    # up = [5.0,  1, 2.0, 0.1]
 
     # lb = [0.1, 1, -0.25, 0.01, 0.01]
     # up = [5.0, 20, 0.99, 2.0, 0.1]
@@ -95,12 +102,12 @@ if __name__ == "__main__":
 
     theta = prior.sample((args.n_samples,))
     today_str = datetime.datetime.now().strftime("%Y%m%d")
-    np.save(f"simulation_outputs_vf_icm_4_par_{today_str}_{args.n_samples}_theta.npy", theta.numpy())
+    np.save(f"simulation_outputs_sg_4_par_no_prior_mean_{today_str}_{args.n_samples}_theta.npy", theta.numpy())
 
     start_time = time.time()
     simulation_outputs = parallel_simulate(theta)
     elapsed = time.time() - start_time
     print(f"Execution took {elapsed:.2f} seconds")
 
-    fname = f"simulation_outputs_vf_icm_4_par_{today_str}_{args.n_samples}.npy"
+    fname = f"simulation_outputs_sg_4_par_no_prior_mean_{today_str}_{args.n_samples}.npy"
     np.save(fname, simulation_outputs)
