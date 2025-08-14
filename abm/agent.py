@@ -195,6 +195,7 @@ def social_generalization_icm(
     tau,
     random_state,
     model="ICM",
+    subtract_max_value=False,
 ):
     X_all = _stack_tasks(X_obs_private, X_obs_social)
     Y_all = _stack_targets(y_obs_private, y_obs_social)
@@ -227,6 +228,8 @@ def social_generalization_icm(
     )
 
     ucb = gp_mean_p.reshape(-1, 1) + beta * gp_std_p.reshape(-1, 1)
+    if subtract_max_value:
+        ucb -= np.max(ucb)
     return np.exp(ucb / tau)
 
 
@@ -386,7 +389,26 @@ class SocialGPAgent(CellAgent):
         X_priv = np.array(self.X_observations)
         y_priv = np.array(self.y_observations).reshape(-1, 1)
 
-        if "SG" in self.model.model_type:
+        if self.model.model_type in ["SG-ICM", "SG-LCM"]:
+            X_soc, y_soc = self._gather_social_info()
+            logits = social_generalization_icm(
+                X_priv,
+                y_priv,
+                X_soc,
+                y_soc,
+                self.meshgrid_flatten,
+                length_scale_private=self.length_scale_private,
+                length_scale_social=self.length_scale_social,
+                observation_noise_private=self.observation_noise_private,
+                observation_noise_social=self.observation_noise_social,
+                beta=self.beta_private,
+                rho=self.rho,
+                tau=self.tau,
+                random_state=self.model.rng.__getstate__(),
+                model=self.model.model_type.split("-")[1],
+                subtract_max_value=True
+            )
+        elif "SG" in self.model.model_type:
             if "fitting" in self.model.model_type:
                 X_soc = [s_c[:self.model.steps - 1] for s_c in self.model.social_choices]
                 y_soc = [s_r[:self.model.steps - 1].reshape(-1, 1) for s_r in self.model.social_rewards]
@@ -424,24 +446,6 @@ class SocialGPAgent(CellAgent):
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__(),
                 value_shaping_type=self.model.model_type.split("-")[1]
-            )
-        elif self.model.model_type in ["SG-ICM", "SG-LCM"]:
-            X_soc, y_soc = self._gather_social_info()
-            logits = social_generalization_icm(
-                X_priv,
-                y_priv,
-                X_soc,
-                y_soc,
-                self.meshgrid_flatten,
-                length_scale_private=self.length_scale_private,
-                length_scale_social=self.length_scale_social,
-                observation_noise_private=self.observation_noise_private,
-                observation_noise_social=self.observation_noise_social,
-                beta=self.beta_private,
-                rho=self.rho,
-                tau=self.tau,
-                random_state=self.model.rng.__getstate__(),
-                model=self.model.model_type.split("-")[1]
             )
         elif self.model.model_type == "AS":
             logits = asocial_generalization(
