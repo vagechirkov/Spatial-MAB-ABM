@@ -1,6 +1,3 @@
-
-
-
 ## Installation instructions
 
 ```bash
