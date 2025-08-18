@@ -676,13 +676,13 @@ def exp_group_composition_social_coupling(
 
 
 if __name__ == "__main__":
-    # poetry run python experiments.py --n_seeds 2_000 --model SG
-    # poetry run python experiments.py --n_seeds 2_000 --model SG-ICM
+    # poetry run python experiments.py --n_seeds 200 --model SG --grid True
+    # poetry run python experiments.py --n_seeds 200 --model SG-ICM
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_seeds", type=int, default=2_000)
     parser.add_argument("--model", type=str, default="SG-ICM")
-    parser.add_argument("--grid", type=bool, default="False")
+    parser.add_argument("--grid", type=str, default="False")
     args = parser.parse_args()
 
     # exp_group_composition_social_coupling(n_seeds=n_seeds, n_iterations=n_iterations, max_steps=max_steps, )
