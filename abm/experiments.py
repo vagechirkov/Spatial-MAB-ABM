@@ -682,6 +682,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_seeds", type=int, default=2_000)
     parser.add_argument("--model", type=str, default="SG-ICM")
+    parser.add_argument("--grid", type=bool, default="False")
     args = parser.parse_args()
 
     # exp_group_composition_social_coupling(n_seeds=n_seeds, n_iterations=n_iterations, max_steps=max_steps, )
@@ -689,6 +690,9 @@ if __name__ == "__main__":
     if args.model == "SG-ICM":
         sg_icm_model_exploration(args.n_seeds)
     elif args.model == "SG":
-        sg_model_exploration(args.n_seeds)
+        if args.grid == "True":
+            sg_model_exploration_env_size(args.n_seeds)
+        else:
+            sg_model_exploration(args.n_seeds)
 
 
