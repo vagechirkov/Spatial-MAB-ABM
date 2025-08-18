@@ -516,6 +516,7 @@ def sg_model_exploration(n_seeds, n_iterations=5, max_steps=15):
                     tau=tau,
                 )
 
+
 def sg_icm_model_exploration(n_seeds, n_iterations=5, max_steps=15):
     for rho_env in [0.6, 0.4]:
         for tau in [0.03, 0.01]:
@@ -529,6 +530,21 @@ def sg_icm_model_exploration(n_seeds, n_iterations=5, max_steps=15):
                     rho_child_child=rho_env,
                     tau=tau,
                 )
+
+
+def sg_model_exploration_env_size(n_seeds, n_iterations=5, max_steps=15):
+    for grid_size in [15, 20, 25]:
+        for o_n in [1, 5, 10, 15, 20]:
+            exp_social_generalization_model(
+                n_seeds=n_seeds,
+                n_iterations=n_iterations,
+                max_steps=max_steps,
+                observation_noise_social=o_n,
+                comparison_model_type="SG",
+                rho_child_child=0.6,
+                tau=0.03,
+                grid_size=grid_size,
+            )
 
 
 def exp_group_composition_social_coupling(
