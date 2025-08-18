@@ -63,6 +63,7 @@ class SocialGPModel(mesa.Model):
         attention_budget: int = 4,
         gamma_pa: float = 2.0,
         seed: int | None = None,
+        reward_noise_sd : float = 0.01,
     ):
         super().__init__(seed=seed)
 
@@ -72,6 +73,7 @@ class SocialGPModel(mesa.Model):
         self.attention_budget = attention_budget
         self.network_type = network_type
         self.gamma_pa = gamma_pa
+        self.reward_noise_sd = reward_noise_sd
 
         rho_parent_child = rho_child_child
 
@@ -94,6 +96,8 @@ class SocialGPModel(mesa.Model):
         if length_scale_is_identical:
             length_scale_social = length_scale_private
 
+        child_maps = [c - 0.5 for c in child_maps]
+
         SocialGPAgent.create_agents(
             self,
             self.num_agents,
@@ -110,21 +114,24 @@ class SocialGPModel(mesa.Model):
             beta_private=beta_private,
             beta_social=beta_social,
             tau=tau,
-            rho=rho
+            rho=rho,
         )
 
         self.datacollector = DataCollector(
             model_reporters={
-                "avg_cumulative_reward": lambda m: np.mean([a.total_reward for a in m.grid.agents]),
-                "avg_reward": lambda m: np.mean([a.last_reward for a in m.grid.agents])
+                "avg_cumulative_reward": lambda m: np.mean([a.total_reward for a in m.grid.agents]) + 0.5,
+                "avg_reward": lambda m: np.mean([a.last_reward for a in m.grid.agents]) + 0.5,
+                "group_composition": lambda m: "-".join(
+                    sorted([str(a.observation_noise_social if m.model_type == "SG" else a.rho) for a in m.grid.agents])[::-1]),
             },
             agent_reporters={
                 "choice": lambda a: a.last_choice,
-                "reward": lambda a: a.last_reward,
-                "cumulative_reward": lambda a: a.total_reward,
+                "reward": lambda a: a.last_reward + 0.5,
+                "cumulative_reward": lambda a: a.total_reward + 0.5,
                 "individual_tau_value": lambda a: a.tau,
                 "individual_beta_private_value": lambda a: a.beta_private,
                 "individual_length_scale_private_value": lambda a: a.length_scale_private,
+                "social_coupling": lambda a: a.observation_noise_social if a.model.model_type == "SG" else a.rho,
             },
         )
 

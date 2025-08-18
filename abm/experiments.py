@@ -1,3 +1,4 @@
+import argparse
 import itertools
 import os
 import uuid
@@ -402,7 +403,8 @@ def exp_env_size(n_seeds=200, n_iterations=1, max_steps=15, **kwargs):
 def exp_social_generalization_model(
     n_seeds=200, n_iterations=1, max_steps=15, comparison_model_type="SG-ICM", **kwargs
 ):
-    l_s_priv = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0)
+    l_s_priv = (0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0)
+    beta = (0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4)
     params = dict(
         model_type=["AS", comparison_model_type],
         n=4,
@@ -412,10 +414,10 @@ def exp_social_generalization_model(
         length_scale_social=2.0,
         length_scale_is_identical=True,
         observation_noise_private=0.001,
-        observation_noise_social=0.001,  # (0.001, 0.001*10, 0.001*100, 0.001*1000, 0.001*10_000, 0.001*100_000),
-        beta_private=(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0),
+        observation_noise_social=0.001,
+        beta_private=beta,
         beta_social=0.7,
-        rho=0,  # (-0.2, -0.1, 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
+        rho=0,
         tau=0.03,
         seed=list(range(n_seeds)),
     )
@@ -432,8 +434,8 @@ def exp_social_generalization_model(
     )
     run = wandb.init(
         project="soc-MAB-ABM",
-        group="value_fusion_model",
-        name=f"VF_{uuid.uuid4().hex[:6]}",
+        group="sg_abm",
+        name=f"{comparison_model_type}_{uuid.uuid4().hex[:6]}",
         config=config_info,
         dir=os.getcwd(),
     )
@@ -449,24 +451,9 @@ def exp_social_generalization_model(
     )
     batch_results = pd.DataFrame(batch_results)
 
-    # for l in [1.0, 2.0, 3.0]:
-    #     plt.figure(figsize=(12, 6))
-    #     sns.catplot(
-    #         data=batch_results[batch_results['length_scale_private'] == l],
-    #         kind="point",
-    #         hue="model_type",
-    #         y="cumulative_reward",
-    #         x="rho",
-    #         dodge=0.3,
-    #         linestyles="",
-    #         aspect=1.3,
-    #     )
-    #     run.log({f"cumulative_reward_catplot_lambda_{l}": wandb.Image(plt)})
-    #     plt.close()
-
     x_values_column = "length_scale_private"  # "rho" "observation_noise_social"
     column = "beta_private" # "length_scale_private"
-    for b in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]:
+    for b in beta:
         plt.figure(figsize=(12, 6))
         sns.catplot(
             data=batch_results[batch_results['beta_private'] == b],
@@ -512,29 +499,180 @@ def exp_social_generalization_model(
         vmin=-1.5,
         vmax=1.5,
     )
-
     run.finish()
 
 
-if __name__ == "__main__":
-    n_seeds = 200
-    n_iterations = 5
-    max_steps = 15
+def sg_model_exploration(n_seeds, n_iterations=5, max_steps=15):
+    for rho_env in [0.6, 0.4]:
+        for tau in [0.03, 0.01]:
+            for o_n in [1, 5, 10, 15, 20]:
+                exp_social_generalization_model(
+                    n_seeds=n_seeds,
+                    n_iterations=n_iterations,
+                    max_steps=max_steps,
+                    observation_noise_social=o_n,
+                    comparison_model_type="SG",
+                    rho_child_child=rho_env,
+                    tau=tau,
+                )
 
-    for rho_env in [0.6]:  # , 0.4
-        for tau in [0.01]:  # , 0.01
-            # for o_n in [0.001, 0.001*10, 0.001*100, 0.001*1000, 0.001*10_000, 0.001*20_000]:
-            for rho in [0.6, -0.2, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.8]:  # , -0.2, 0.9, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 0.8,
+def sg_icm_model_exploration(n_seeds, n_iterations=5, max_steps=15):
+    for rho_env in [0.6, 0.4]:
+        for tau in [0.03, 0.01]:
+            for rho in [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]:
                 exp_social_generalization_model(
                     n_seeds=n_seeds,
                     n_iterations=n_iterations,
                     max_steps=max_steps,
                     rho=rho,
-                    # observation_noise_social=o_n,
                     comparison_model_type="SG-ICM",
-                    # length_scale_private=length_scale,
-                    # beta_private=beta,
-                    # beta_social=beta,
                     rho_child_child=rho_env,
                     tau=tau,
                 )
+
+
+def exp_group_composition_social_coupling(
+    n_seeds=200, n_iterations=1, max_steps=15, **kwargs
+):
+    results = []
+    for length_scale, beta, eps_soc in zip(
+            # [[1.5, 1.1, 1.1, 1.1], [1.5, 1.5, 1.1, 1.1], [1.5, 1.5, 1.5, 1.1]],
+            # [# [1.3, 1.3, 1.3, 1.3],
+            #  [1.0, 1.70, 1.70, 1.70],
+            #  [1.0, 1.0, 1.70, 1.70],
+            #  [1.0, 1.0, 1.0, 1.70],
+            #  # [1.3, 1.3, 1.3, 1.3]
+            # ],
+            [# [1.3, 1.3, 1.3, 1.3],
+                [1.4, 1.1, 1.1, 1.1],
+                [1.4, 1.4, 1.1, 1.1],
+                [1.4, 1.4, 1.4, 1.1],
+                [1.4, 1.4, 1.4, 1.4]
+            ],
+            # [[1.3, 1.3, 1.3, 1.3],
+            #  [1.4, 1.3, 1.3, 1.3],
+            #  [1.4, 1.4, 1.3, 1.3],
+            #  [1.4, 1.4, 1.4, 1.3],
+            #  [1.4, 1.4, 1.4, 1.4]],
+            # [[1.6, 1.6, 1.6, 1.6], [1.6, 1.6, 1.6, 1.6], [1.6, 1.6, 1.6, 1.6]],
+            # [[1.5, 1.5, 1.5, 1.5], [1.5, 1.5, 1.5, 1.5], [1.5, 1.5, 1.5, 1.5]],
+            # [[0.28, 0.25, 0.25, 0.25], [0.28, 0.28, 0.25, 0.25], [0.28, 0.28, 0.28, 0.25]],
+            # [[0.25, 0.28, 0.28, 0.28], [0.25, 0.25, 0.28, 0.28], [0.25, 0.25, 0.25, 0.28]],
+            # [[0.27, 0.27, 0.27, 0.27], [0.27, 0.27, 0.27, 0.27], [0.27, 0.27, 0.27, 0.27]],
+            # [[0.28, 0.28, 0.28, 0.28],
+            #  [0.21, 0.28, 0.28, 0.28],
+            #  [0.21, 0.21, 0.28, 0.28],
+            #  [0.21, 0.21, 0.21, 0.28],
+            #  [0.21, 0.21, 0.21, 0.21]],
+            [# [0.28, 0.28, 0.28, 0.28],
+             [0.36, 0.33, 0.33, 0.33],
+             [0.36, 0.36, 0.33, 0.33],
+             [0.36, 0.36, 0.36, 0.33],
+            [0.36, 0.36, 0.36, 0.33],
+             # [0.25, 0.25, 0.25, 0.25]
+            ],
+            # [[0.28, 0.22, 0.22, 0.22], [0.28, 0.28, 0.22, 0.22], [0.28, 0.28, 0.28, 0.22]],
+            [[11, 18, 18, 18], [11, 11, 18, 18], [11, 11, 11, 18], [11, 11, 11, 11]]
+            # [[18, 18, 18, 18],
+            #  [6, 18, 18, 18],
+            #  [6, 6, 18, 18],
+            #  [6, 6, 6, 18],
+            #  [6, 6, 6, 6]],
+            # [# [18, 18, 18, 18],
+            #  [7, 15, 15, 15],
+            #  [7, 7, 15, 15],
+            #  [7, 7, 7, 15],
+            #  # [8, 8, 8, 8]
+            # ],
+            # [[0.15, 0.15, 0.15, 0.35], [0.15, 0.15, 0.35, 0.35], [0.15, 0.35, 0.35, 0.35]]
+            # [[0.25, 0.25, 0.25, 0.3], [0.25, 0.25, 0.3, 0.3], [0.25, 0.3, 0.3, 0.3]]
+            # [[0.1, 0.1, 0.1, 0.2], [0.1, 0.1, 0.2, 0.2], [0.1, 0.2, 0.2, 0.2]]
+            # [[0.05, 0.05, 0.05, 0.25], [0.05, 0.05, 0.25, 0.25], [0.05, 0.25, 0.25, 0.25]]
+            # [[0.1, 0.1, 0.1, 0.6], [0.1, 0.1, 0.6, 0.6], [0.1, 0.6, 0.6, 0.6]]
+            # [[0.0, 0.0, 0.0, 0.6], [0.0, 0.0, 0.6, 0.6], [0.0, 0.6, 0.6, 0.6]]
+    ):
+        params = dict(
+            model_type="SG",  # "SG-ICM",
+            n=4,
+            grid_size=11,
+            rho_child_child=0.6,
+            length_scale_private=[length_scale],  # 1.3,  #
+            length_scale_social=[length_scale],  #1.3,  #
+            observation_noise_private=0.001,
+            observation_noise_social=[eps_soc], #  # 0.001, #
+            beta_private=0.3, # [beta],
+            beta_social=0.3, # [beta],
+            rho= 0, # [eps_soc],
+            tau=0.02,
+            seed=list(range(n_seeds)),
+        )
+        params.update(kwargs)
+
+        batch_results = mesa.batch_run(
+            SocialGPModel,
+            parameters=params,
+            iterations=n_iterations,
+            max_steps=max_steps,
+            number_processes=None,
+            data_collection_period=1,
+            display_progress=True,
+        )
+        batch_results = pd.DataFrame(batch_results)
+        results.append(batch_results)
+
+    results = pd.concat(results)
+    results.reset_index(drop=True, inplace=True)
+    # wandb setup
+    # wandb.login()
+    # config_info = dict(
+    #     n_seeds=n_seeds,
+    #     n_runs=n_seeds * n_iterations,
+    #     max_steps=max_steps,
+    #     heterogeneity=False,
+    #     **params
+    # )
+    # run = wandb.init(
+    #     project="soc-MAB-ABM",
+    #     group="sg_group_composition_social_coupling",
+    #     name=f"SG_{uuid.uuid4().hex[:6]}",
+    #     config=config_info,
+    #     dir=os.getcwd(),
+    # )
+
+
+    sns.catplot(
+        data=results,
+        x='group_composition',
+        # order=['8-18-18-18', '8-8-18-18', '8-8-8-18'],  # '4-0', , '0-4'
+        # order=['11-18-18-18', '11-11-18-18', '11-11-11-18'],  # '4-0', , '0-4'
+        y='reward',
+        hue='social_coupling',
+        kind='point',
+        errorbar='se',
+        dodge=True,
+        markers='o',
+        capsize=0.1,
+        linestyle='none'
+    )
+    plt.show()
+
+    # run.finish()
+
+
+if __name__ == "__main__":
+    # poetry run python experiments.py --n_seeds 2_000 --model SG
+    # poetry run python experiments.py --n_seeds 2_000 --model SG-ICM
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n_seeds", type=int, default=2_000)
+    parser.add_argument("--model", type=str, default="SG-ICM")
+    args = parser.parse_args()
+
+    # exp_group_composition_social_coupling(n_seeds=n_seeds, n_iterations=n_iterations, max_steps=max_steps, )
+
+    if args.model == "SG-ICM":
+        sg_icm_model_exploration(args.n_seeds)
+    elif args.model == "SG":
+        sg_model_exploration(args.n_seeds)
+
+
