@@ -119,8 +119,8 @@ class SocialGPModel(mesa.Model):
 
         self.datacollector = DataCollector(
             model_reporters={
-                "avg_cumulative_reward": lambda m: np.mean([a.total_reward for a in m.grid.agents]) + 0.5,
-                "avg_reward": lambda m: np.mean([a.last_reward for a in m.grid.agents]) + 0.5,
+                "avg_cumulative_reward": lambda m: np.mean([a.total_reward for a in m.grid.agents]) + 0.5 * m.steps,
+                "avg_reward": lambda m: np.mean([a.total_reward for a in m.grid.agents]) / m.steps + 0.5,
                 "group_composition": lambda m: "-".join(
                     sorted([str(a.observation_noise_social if m.model_type == "SG" else a.rho) for a in m.grid.agents])[::-1]),
             },

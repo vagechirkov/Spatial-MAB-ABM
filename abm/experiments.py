@@ -1,4 +1,3 @@
-import argparse
 import itertools
 import os
 import uuid
@@ -675,24 +674,123 @@ def exp_group_composition_social_coupling(
     # run.finish()
 
 
+def exp_soc_coupling_model(
+        n_seeds=200, n_iterations=1, max_steps=15, **kwargs
+):
+    results = []
+    for model_type in ["AS", "SG", "SG-ICM"]:
+        params = dict(
+            model_type=model_type,
+            n=4,
+            grid_size=11,
+            rho_child_child=0.6,
+            length_scale_private=1.1,
+            length_scale_social=1.1,
+            length_scale_is_identical=True,
+            observation_noise_private=0.001,
+            observation_noise_social= [0.1, 1, 2.5, 5, 7.5, 10, 12.5, 15, 17.5, 20, 22.5, 25] if model_type == "SG" else 0.001,
+            beta_private=0.33,
+            beta_social=0.33,
+            rho=[-0.1, -0.05, 0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95] if model_type == "SG-ICM" else 0,
+            tau=0.03,
+            seed=list(range(n_seeds)),
+        )
+        params.update(kwargs)
+
+        batch_results = mesa.batch_run(
+            SocialGPModel,
+            parameters=params,
+            iterations=n_iterations,
+            max_steps=max_steps,
+            number_processes=None,
+            data_collection_period=-1,
+            display_progress=True,
+        )
+        batch_results = pd.DataFrame(batch_results)
+        results.append(batch_results)
+
+    results = pd.concat(results)
+    results.reset_index(drop=True, inplace=True)
+
+
+    # --- AS baseline stats
+    df_as = results[results["model_type"] == "AS"]
+    as_mean = df_as["avg_reward"].mean()
+    as_sd = df_as["avg_reward"].std()
+
+    # --- AS vs SG ---
+    df_sg = results[results["model_type"].isin(["SG"])]
+    x_col_sg = "observation_noise_social"
+    order_sg = sorted([v for v in df_sg[x_col_sg].unique() if pd.notna(v)])
+
+    g1 = sns.catplot(
+        data=df_sg,
+        x=x_col_sg, y="avg_reward",
+        kind="point",
+        errorbar="ci",
+        order=order_sg,
+        height=4, aspect=1.6,
+        color="C1",
+    )
+    g1.ax.axhline(as_mean, color="C0", linestyle="--", label="AS")
+    # g1.ax.fill_between(
+    #     g1.ax.get_xlim(),
+    #     as_mean - as_sd,
+    #     as_mean + as_sd,
+    #     color="C0", alpha=0.15
+    # )
+    g1.ax.legend()
+    g1.set_axis_labels("Social observation noise (σ²)", "Average reward")
+    g1.set_titles("AS vs SG")
+
+    # --- AS vs SG-ICM ---
+    df_icm = results[results["model_type"].isin(["SG-ICM"])]
+    x_col_icm = "rho"
+    order_icm = sorted([v for v in df_icm[x_col_icm].unique() if pd.notna(v)])
+
+    g2 = sns.catplot(
+        data=df_icm,
+        x=x_col_icm, y="avg_reward",
+        kind="point",
+        errorbar="ci",
+        order=order_icm,
+        height=4, aspect=1.6,
+        color="C2",
+    )
+    g2.ax.axhline(as_mean, color="C0", linestyle="--", label="AS")
+    # g2.ax.fill_between(
+    #     g2.ax.get_xlim(),
+    #     as_mean - as_sd,
+    #     as_mean + as_sd,
+    #     color="C0", alpha=0.15
+    # )
+    g2.ax.legend()
+    g2.set_axis_labels("Task coupling ρ", "Average reward")
+    g2.set_titles("AS vs SG-ICM")
+
+    plt.tight_layout()
+    plt.show()
+
+
 if __name__ == "__main__":
     # poetry run python experiments.py --n_seeds 200 --model SG --grid True
     # poetry run python experiments.py --n_seeds 200 --model SG-ICM
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--n_seeds", type=int, default=2_000)
-    parser.add_argument("--model", type=str, default="SG-ICM")
-    parser.add_argument("--grid", type=str, default="False")
-    args = parser.parse_args()
-
-    # exp_group_composition_social_coupling(n_seeds=n_seeds, n_iterations=n_iterations, max_steps=max_steps, )
-
-    if args.model == "SG-ICM":
-        sg_icm_model_exploration(args.n_seeds)
-    elif args.model == "SG":
-        if args.grid == "True":
-            sg_model_exploration_env_size(args.n_seeds)
-        else:
-            sg_model_exploration(args.n_seeds)
+    exp_soc_coupling_model(n_seeds=500, n_iterations=5)
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--n_seeds", type=int, default=2_000)
+    # parser.add_argument("--model", type=str, default="SG-ICM")
+    # parser.add_argument("--grid", type=str, default="False")
+    # args = parser.parse_args()
+    #
+    # # exp_group_composition_social_coupling(n_seeds=n_seeds, n_iterations=n_iterations, max_steps=max_steps, )
+    #
+    # if args.model == "SG-ICM":
+    #     sg_icm_model_exploration(args.n_seeds)
+    # elif args.model == "SG":
+    #     if args.grid == "True":
+    #         sg_model_exploration_env_size(args.n_seeds)
+    #     else:
+    #         sg_model_exploration(args.n_seeds)
 
 
