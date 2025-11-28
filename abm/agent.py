@@ -359,7 +359,7 @@ class SocialGPAgent(CellAgent):
     def _gather_social_info(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
         neighbours = list(self.model.grid[self.cell.coordinate].neighborhood)
         #TODO: more this to the network generation script
-        neighbours = neighbours[: self.model.attention_budget]  # w = 4
+        # neighbours = neighbours[: self.model.attention_budget]  # w = 4
 
         X_soc, y_soc = [], []
         # observe only the choices before the last step
