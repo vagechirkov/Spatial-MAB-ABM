@@ -16,6 +16,25 @@ def _build_network(network_type, reward_maps, gamma_pa, rng):
     if network_type == "fully_connected":
         return nx.complete_graph(n)
 
+    if network_type == "directed_one_to_four":
+        # Validate we have enough nodes
+        if n < 5:
+            raise ValueError(f"Network type '{network_type}' requires at least 5 nodes, found {n}.")
+
+        G = nx.empty_graph(n, create_using=nx.DiGraph)
+
+        source_node = 0
+        # Select 4 unique targets from the other nodes
+        candidates = list(range(n))
+        candidates.remove(source_node)
+
+        targets = rng.choice(candidates, size=4, replace=False)
+
+        for t in targets:
+            G.add_edge(source_node, int(t))
+
+        return G
+
     if network_type == "similarity_pa":
         G = nx.empty_graph(n)
         G.add_edge(0, 1)  # seed edge
@@ -291,32 +310,19 @@ class SocialGPModelReplication(mesa.Model):
 if __name__ == "__main__":
     import seaborn as sns
     import matplotlib.pyplot as plt
-    m = SocialGPModel(model_type="SG-ICM")
+    m = SocialGPModel(n=5, model_type="SG-ICM", network_type='directed_one_to_four')
     for _ in range(15):
         m.step()
 
     param_grid = {
-        "n": [4],
-        "model_type": ["AS", "SG", "SG-ICM", "VS-F", "VS-CK"], # , "VS"
-        "length_scale_private": [1.11],  #
+        "n": [5],
+        "model_type": ["SG-ICM"],  # "AS", "SG", "SG-ICM", "VS-F", "VS-CK"
+        "length_scale_private": [1.11],
         "length_scale_social": [1.11],
-        # "length_scale_private": [[2, 1.11, 1.11, 1.11], [1.11, 1.11, 1.11, 1.11]],
-        # "length_scale_private": [[2.5, 3, 3, 3], [3, 3, 3, 3]],
-        # "length_scale_private": [[0.5, 0.5, 0.5, 0.5], [2.5, 1, 1, 1], [1, 1, 1, 1], [2, 2, 2, 2], [3, 3, 3, 3]],
         "observation_noise_private": [0.0001],
-        "observation_noise_social":  [0.0001],  # , 20 , 0.0001 + 3  # 3, 50, 100, 200, 500
-        # "observation_noise_social":  [[0.01, 12, 12, 12], [3, 12, 12, 12], [12, 12, 12, 12]],
-        # "observation_noise_social":  [0.0001, 0.0005, 0.001, 0.1, 3, 12],
+        "observation_noise_social":  [0.0001],
         "beta_private": [0.33],
-        # "beta_private": [[0.6, 0.2, 0.2, 0.2], [0.2, 0.2, 0.2, 0.2]],
-        # "beta_private": [[0.6, 0.1, 0.1, 0.1], [0.1, 0.1, 0.1, 0.1]],
         "beta_social":   [0.33],
-        # "tau": [[0.01, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04],
-        #         [0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04, 0.04]],
-        # "tau": [[0.04, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01],
-        #         [0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01, 0.01]],
-        # "tau": [[0.5, 0.01, 0.01, 0.01],
-        #         [0.01, 0.01, 0.01, 0.01]],
         "tau": [0.03],
         "rho": [0.5],
         "seed": list(range(20))
@@ -334,13 +340,10 @@ if __name__ == "__main__":
 
     batch_results = pd.DataFrame(batch_results)
     batch_results.dropna(inplace=True)
-    # mask = (((batch_results["model_type"] == "SG") & (batch_results["observation_noise_social"] > 0.0001)) |
-    #         (batch_results["model_type"] == "VS") & (batch_results["observation_noise_social"]) < 12)
-    # mask = batch_results["AgentID"] != 1.0
 
     batch_results['tau_str'] = [str(l) for l in batch_results['tau'].to_list()]
 
-    sns.lineplot(batch_results, # [mask],
+    sns.lineplot(batch_results,
                  x="Step",
                  y="reward",
                  hue="model_type"  # "observation_noise_social" # "model_type"
