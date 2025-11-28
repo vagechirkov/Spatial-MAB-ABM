@@ -151,7 +151,7 @@ class SocialGPModel(mesa.Model):
         )
 
     def step(self):
-        self.agents.shuffle_do("step")
+        self.agents.do("step")
         self.datacollector.collect(self)
 
 
