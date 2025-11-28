@@ -17,21 +17,16 @@ def _build_network(network_type, reward_maps, gamma_pa, rng):
         return nx.complete_graph(n)
 
     if network_type == "directed_one_to_four":
-        # Validate we have enough nodes
         if n < 5:
-            raise ValueError(f"Network type '{network_type}' requires at least 5 nodes, found {n}.")
+            raise ValueError(f"Network type '{network_type}' requires at least 5 nodes (1 source + 4 targets), but found {n}.")
 
+        # Create a directed graph
         G = nx.empty_graph(n, create_using=nx.DiGraph)
 
+        # Always connect Node 0 to Node 1, 2, 3, 4 (Fixed order)
         source_node = 0
-        # Select 4 unique targets from the other nodes
-        candidates = list(range(n))
-        candidates.remove(source_node)
-
-        targets = rng.choice(candidates, size=4, replace=False)
-
-        for t in targets:
-            G.add_edge(source_node, int(t))
+        for target in range(1, 5):
+            G.add_edge(source_node, target)
 
         return G
 
@@ -120,9 +115,10 @@ class SocialGPModel(mesa.Model):
         SocialGPAgent.create_agents(
             self,
             self.num_agents,
-            cell=self.rng.choice(
-                self.grid.all_cells, replace=False, size=self.num_agents
-            ),
+            cell=self.grid.all_cells.cells,
+            # cell=self.rng.choice(
+            #     self.grid.all_cells, replace=False, size=self.num_agents
+            # ),
             reward_environment=self.rng.choice(
                 child_maps, replace=False, size=self.num_agents
             ),
