@@ -70,8 +70,21 @@ def make_parent_and_children_cholesky2(
     n_children=4,
     length_scale=2.0,
     corr_parent=0.60,
-    corr_children=0.60
+    corr_children=0.60,
+    corr_matrix=None, # add correlation matrix
 ):
+    """
+    Generate one parent map + n_children child maps with a specified
+    spatial covariance (RBF kernel) and a task-level correlation structure.
+
+    Parameters
+    ----------
+    corr_matrix : np.ndarray or None
+        Optional full task-level correlation matrix R of shape
+        (n_total, n_total), where n_total = n_children + 1 (parent + children).
+        If provided, it is used directly instead of corr_parent/corr_children.
+        Must be symmetric with ones on the diagonal and positive-definite.
+    """
     x, y = np.meshgrid(np.arange(grid_size), np.arange(grid_size))
     Xstar = np.column_stack([x.ravel(), y.ravel()])  # (M, 2)
     Sigma = RBF(length_scale)(Xstar)  # (M, M)
@@ -80,10 +93,26 @@ def make_parent_and_children_cholesky2(
     M = Sigma.shape[0]
     n_total = n_children + 1
 
-    # Task-level correlation matrix R and its Cholesky LR
-    R = np.full((n_total, n_total), corr_children)
-    R[0, 1:] = R[1:, 0] = corr_parent
-    np.fill_diagonal(R, 1.0)
+    # Task-level correlation matrix R
+    if corr_matrix is not None:
+        # Use the provided full correlation matrix
+        R = np.asarray(corr_matrix, dtype=float)
+        if R.shape != (n_total, n_total):
+            raise ValueError(
+                f"corr_matrix must have shape {(n_total, n_total)}, "
+                f"but got {R.shape}."
+            )
+        # Symmetry check
+        if not np.allclose(R, R.T, atol=1e-8):
+            raise ValueError("corr_matrix must be symmetric.")
+        # Diagonal ones check
+        if not np.allclose(np.diag(R), 1.0, atol=1e-8):
+            raise ValueError("corr_matrix must have ones on the diagonal.")
+    else:
+        # Original behavior: Task-level correlation matrix R and its Cholesky LR
+        R = np.full((n_total, n_total), corr_children)
+        R[0, 1:] = R[1:, 0] = corr_parent
+        np.fill_diagonal(R, 1.0)
 
     # Positive-definiteness check (needed for the Cholesky in the next step)
     eigvals = np.linalg.eigvalsh(R)
@@ -120,6 +149,26 @@ def check_correlations(parent, children, corr_parent, corr_children, tol=0.05):
 
     return True
 
+def check_correlations_matrix(parent, children, R_target, tol=0.1):
+    """
+    Check if the empirical correlation matrix of (parent + children) is close
+    to the target task-level correlation matrix R_target, up to tol.
+
+    R_target should be a (n_total, n_total) array with ones on the diagonal.
+    """
+    flats = [parent.ravel()] + [c.ravel() for c in children]
+    C = np.corrcoef(flats)  # (n_total, n_total)
+
+    if C.shape != R_target.shape:
+        raise ValueError(
+            f"Shape mismatch: empirical C has shape {C.shape}, "
+            f"but R_target has shape {R_target.shape}."
+        )
+
+    # We only care about off-diagonal entries; diagonal should be 1 anyway
+    i, j = np.triu_indices(R_target.shape[0], k=1)
+    diffs = np.abs(C[i, j] - R_target[i, j])
+    return np.all(diffs <= tol)
 
 def sample_children_with_corr(
         rng: np.random.Generator | None,
@@ -245,46 +294,135 @@ def plot_reward_environments(parent, children, cmap="viridis", figsize=None):
 
     plt.show()
 
+def build_corr_matrix_option1():
+    """
+    Option 1: AS–AS correlations (B–C, B–D, C–D) = 0.
+
+    A = parent (index 0)
+    B, C, D = children (indices 1, 2, 3)
+    """
+    corr_AB = 0.0   # r(A,B)
+    corr_AC = -0.6  # r(A,C)
+    corr_AD = 0.6   # r(A,D)
+
+    corr_BC = 0.0   # r(B,C)
+    corr_BD = 0.0   # r(B,D)
+    corr_CD = 0.0   # r(C,D)
+
+    R = np.array([
+        [1.0,      corr_AB, corr_AC, corr_AD],
+        [corr_AB,  1.0,     corr_BC, corr_BD],
+        [corr_AC,  corr_BC, 1.0,     corr_CD],
+        [corr_AD,  corr_BD, corr_CD, 1.0    ],
+    ])
+    return R
+
+
+def build_corr_matrix_option2(eps=0.2, max_tries=20):
+    """
+    Option 2: AS–AS correlations (B–C, B–D, C–D) random in [-eps, eps],
+    so they are ~0 in expectation, but R is enforced to be PD.
+    """
+    corr_AB = 0.0
+    corr_AC = -0.6
+    corr_AD = 0.6
+
+    for _ in range(max_tries):
+        corr_BC = np.random.uniform(-eps, eps)
+        corr_BD = np.random.uniform(-eps, eps)
+        corr_CD = np.random.uniform(-eps, eps)
+
+        R = np.array([
+            [1.0,      corr_AB, corr_AC, corr_AD],
+            [corr_AB,  1.0,     corr_BC, corr_BD],
+            [corr_AC,  corr_BC, 1.0,     corr_CD],
+            [corr_AD,  corr_BD, corr_CD, 1.0    ],
+        ])
+
+        eigvals = np.linalg.eigvalsh(R)
+        if eigvals.min() > 0:
+            return R
+
+    raise RuntimeError(
+        f"Could not sample a positive-definite R in {max_tries} attempts, try smaller eps."
+    )
+
+
+def build_corr_matrix_option3():
+    """
+    Option 3: fully custom AS–AS correlations.
+    """
+    corr_AB = 0.0
+    corr_AC = -0.6
+    corr_AD = 0.6
+    
+    # customize correlations for AS agnets
+    corr_BC = 0.2
+    corr_BD = -0.3
+    corr_CD = 0.1
+
+    R = np.array([
+        [1.0,      corr_AB, corr_AC, corr_AD],
+        [corr_AB,  1.0,     corr_BC, corr_BD],
+        [corr_AC,  corr_BC, 1.0,     corr_CD],
+        [corr_AD,  corr_BD, corr_CD, 1.0    ],
+    ])
+
+    eigvals = np.linalg.eigvalsh(R)
+    if eigvals.min() <= 0:
+        raise ValueError(
+            f"Custom R is not positive-definite; smallest eigenvalue={eigvals.min():.3g}"
+        )
+
+    return R
+
 
 if __name__ == "__main__":
     random_state = 42
     # corr_PC, corr_CC = 0.4, 0.4
-    corr_PC = corr_CC = 0.6
+    corr_PC = corr_CC = 0.6  
 
     rng = np.random.default_rng(random_state)
+
+    # Choose which correlation-matrix option
+    R = build_corr_matrix_option1()
+    # R = build_corr_matrix_option2(eps=0.2)
+    # R = build_corr_matrix_option3()
 
     n = 0
     no_luck = 0
     while n < 5:
-        parent, kids = (
-            # make_parent_and_children_corr
-            make_parent_and_children_cholesky2(
-                rng,
-                grid_size=11,
-                n_children=4,
-                length_scale=2.0,
-                corr_parent=corr_PC,
-                corr_children=corr_CC
-            )
+        parent, kids = make_parent_and_children_cholesky2(
+            rng,
+            grid_size=11,
+            n_children=3,      
+            length_scale=2.0,
+            corr_parent=corr_PC,   # ignored when corr_matrix is provided
+            corr_children=corr_CC, # ignored when corr_matrix is provided
+            corr_matrix=R,         # <-- new: full task correlation matrix
         )
-        kids = [_fix_corr(parent, ch, corr_CC) for ch in kids]
 
         parent, kids = _min_max(parent), [_min_max(k) for k in kids]
 
-        if not check_correlations(parent, kids, corr_PC, corr_CC, tol=0.1):
+        # New: check full correlation matrix instead of scalar corr_PC/corr_CC
+        if not check_correlations_matrix(parent, kids, R, tol=0.1):
             no_luck += 1
             continue
 
         n += 1
-        print(no_luck)
+        print("Number of failed attempts so far:", no_luck)
 
         plot_reward_environments(parent, kids)
 
-        print(np.corrcoef([parent.ravel()] + [k.ravel() for k in kids]))
+        flats = [parent.ravel()] + [k.ravel() for k in kids]
+        C = np.corrcoef(flats)
+        print("Target R:")
+        print(R)
+        print("Empirical C:")
+        print(C)
 
         p = parent.ravel()
         c1, c2 = (kids[0].ravel(), kids[1].ravel())
         print("corr(P, C1) =", np.corrcoef(p, c1)[0, 1])
         print("corr(P, C2) =", np.corrcoef(p, c2)[0, 1])
         print("corr(C1, C2) =", np.corrcoef(c1, c2)[0, 1])
-
