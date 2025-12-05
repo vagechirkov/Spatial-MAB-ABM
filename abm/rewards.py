@@ -376,47 +376,6 @@ def build_corr_matrix_option3():
 
     return R
 
-# if __name__ == "__main__":
-#     random_state = 42
-#     # corr_PC, corr_CC = 0.4, 0.4
-#     corr_PC = corr_CC = 0.6
-
-#     rng = np.random.default_rng(random_state)
-
-#     n = 0
-#     no_luck = 0
-#     while n < 5:
-#         parent, kids = (
-#             # make_parent_and_children_corr
-#             make_parent_and_children_cholesky2(
-#                 rng,
-#                 grid_size=11,
-#                 n_children=4,
-#                 length_scale=2.0,
-#                 corr_parent=corr_PC,
-#                 corr_children=corr_CC
-#             )
-#         )
-#         kids = [_fix_corr(parent, ch, corr_CC) for ch in kids]
-
-#         parent, kids = _min_max(parent), [_min_max(k) for k in kids]
-
-#         if not check_correlations(parent, kids, corr_PC, corr_CC, tol=0.1):
-#             no_luck += 1
-#             continue
-
-#         n += 1
-#         print(no_luck)
-
-#         plot_reward_environments(parent, kids)
-
-#         print(np.corrcoef([parent.ravel()] + [k.ravel() for k in kids]))
-
-#         p = parent.ravel()
-#         c1, c2 = (kids[0].ravel(), kids[1].ravel())
-#         print("corr(P, C1) =", np.corrcoef(p, c1)[0, 1])
-#         print("corr(P, C2) =", np.corrcoef(p, c2)[0, 1])
-#         print("corr(C1, C2) =", np.corrcoef(c1, c2)[0, 1])
 
 if __name__ == "__main__":
     random_state = 42
