@@ -24,15 +24,16 @@ def _build_network(network_type, reward_maps, gamma_pa, rng):
         return nx.complete_graph(n)
 
     if network_type == "directed_one_to_four":
-        if n < 5:
-            raise ValueError(f"Network type '{network_type}' requires at least 5 nodes (1 source + 4 targets), but found {n}.")
+        if n < 2:
+            raise ValueError(
+                f"Network type '{network_type}' requires at least 2 nodes (1 source + 1 targets), but found {n}.")
 
         # Create a directed graph
         G = nx.empty_graph(n, create_using=nx.DiGraph)
 
-        # Always connect Node 0 to Node 1, 2, 3, 4 (Fixed order)
+        # Always connect Node 0 to Node 1, 2, 3, 4, ... (Fixed order)
         source_node = 0
-        for target in range(1, 5):
+        for target in range(1, n):
             G.add_edge(source_node, target)
 
         return G
@@ -92,11 +93,13 @@ class SocialGPModel(mesa.Model):
 
         self.num_agents = n
         self.grid_size = grid_size
-        self.model_type = model_type
         self.attention_budget = attention_budget
         self.network_type = network_type
         self.gamma_pa = gamma_pa
         self.reward_noise_sd = reward_noise_sd
+
+        # check the model types
+        assert model_type in ["SG", "SG-ICM", "AS"]
         
         # 1. If explicit maps are passed in (for testing the code)
         if child_maps is not None:
@@ -140,16 +143,20 @@ class SocialGPModel(mesa.Model):
 
         child_maps = [c - 0.5 for c in child_maps]
 
+        # only one agent is social for this network structure
+        if network_type == "directed_one_to_four":
+            agent_model_type = [model_type] + ['AS'] * (self.num_agents - 1)
+        else:
+            agent_model_type = model_type
+
         SocialGPAgent.create_agents(
             self,
             self.num_agents,
             cell=self.grid.all_cells.cells,
-            # cell=self.rng.choice(
-            #     self.grid.all_cells, replace=False, size=self.num_agents
-            # ),
             reward_environment=self.rng.choice(
                 child_maps, replace=False, size=self.num_agents
             ),
+            model_type=agent_model_type,
             length_scale_private=length_scale_private,
             length_scale_social=length_scale_social,
             observation_noise_private=observation_noise_private,
@@ -164,17 +171,12 @@ class SocialGPModel(mesa.Model):
             model_reporters={
                 "avg_cumulative_reward": lambda m: np.mean([a.total_reward for a in m.grid.agents]) + 0.5 * m.steps,
                 "avg_reward": lambda m: np.mean([a.total_reward for a in m.grid.agents]) / m.steps + 0.5,
-                "group_composition": lambda m: "-".join(
-                    sorted([str(a.observation_noise_social if m.model_type == "SG" else a.rho) for a in m.grid.agents])[::-1]),
             },
             agent_reporters={
                 "choice": lambda a: a.last_choice,
                 "reward": lambda a: a.last_reward + 0.5,
                 "cumulative_reward": lambda a: a.total_reward + 0.5,
-                "individual_tau_value": lambda a: a.tau,
-                "individual_beta_private_value": lambda a: a.beta_private,
-                "individual_length_scale_private_value": lambda a: a.length_scale_private,
-                "social_coupling": lambda a: a.observation_noise_social if a.model.model_type == "SG" else a.rho,
+                "model_type": lambda a: a.model_type,
             },
         )
 

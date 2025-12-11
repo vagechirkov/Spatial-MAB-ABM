@@ -241,6 +241,7 @@ class SocialGPAgent(CellAgent):
         model,
         cell,
         reward_environment: np.ndarray,
+        model_type: str,
         length_scale_private: float,
         length_scale_social: float,
         observation_noise_private: float,
@@ -254,6 +255,9 @@ class SocialGPAgent(CellAgent):
 
         # graph node the agent occupies
         self.cell = cell
+
+        # model type
+        self.model_type = model_type
 
         # reward landscape specific to this agent
         self.reward_environment = reward_environment
@@ -389,7 +393,7 @@ class SocialGPAgent(CellAgent):
         X_priv = np.array(self.X_observations)
         y_priv = np.array(self.y_observations).reshape(-1, 1)
 
-        if self.model.model_type in ["SG-ICM", "SG-LCM"]:
+        if self.model_type in ["SG-ICM", "SG-LCM"]:
             X_soc, y_soc = self._gather_social_info()
             logits = social_generalization_icm(
                 X_priv,
@@ -405,15 +409,12 @@ class SocialGPAgent(CellAgent):
                 rho=self.rho,
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__(),
-                model=self.model.model_type.split("-")[1],
+                model=self.model_type.split("-")[1],
                 subtract_max_value=True
             )
-        elif "SG" in self.model.model_type:
-            if "fitting" in self.model.model_type:
-                X_soc = [s_c[:self.model.steps - 1] for s_c in self.model.social_choices]
-                y_soc = [s_r[:self.model.steps - 1].reshape(-1, 1) for s_r in self.model.social_rewards]
-            else:
-                X_soc, y_soc = self._gather_social_info()
+        elif "SG" in self.model_type:
+
+            X_soc, y_soc = self._gather_social_info()
             logits = social_generalization(
                 X_priv,
                 y_priv,
@@ -428,7 +429,7 @@ class SocialGPAgent(CellAgent):
                 random_state=self.model.rng.__getstate__(),
                 subtract_max_value=True
             )
-        elif self.model.model_type in ["VS-N", "VS-F", "VS-CK"]:
+        elif self.model_type in ["VS-N", "VS-F", "VS-CK"]:
             X_soc, y_soc = self._gather_social_info()
             logits = value_shaping(
                 X_priv,
@@ -445,9 +446,9 @@ class SocialGPAgent(CellAgent):
                 alpha=self.rho,
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__(),
-                value_shaping_type=self.model.model_type.split("-")[1]
+                value_shaping_type=self.model_type.split("-")[1]
             )
-        elif self.model.model_type == "AS":
+        elif self.model_type == "AS":
             logits = asocial_generalization(
                 X_priv,
                 y_priv,
@@ -459,21 +460,16 @@ class SocialGPAgent(CellAgent):
                 random_state=self.model.rng.__getstate__()
             )
         else:
-            raise ValueError(f"Unknown model_type '{self.model.model_type}'")
+            raise ValueError(f"Unknown model_type '{self.model_type}'")
 
         probs = logits.ravel()
         probs /= probs.sum() + 1e-12
         self.policy = probs
 
-        if "fitting" in self.model.model_type:
-            inx = self.model.steps - 1
-            coord = tuple(self.model.individual_choices[inx])
-            reward = self.model.individual_rewards[inx]
-        else:
-            idx = self.model.rng.choice(len(self.policy), p=self.policy)
-            coord = tuple(self.meshgrid_flatten[idx])
-            reward = float(self.reward_environment[coord])
-            reward = self._add_noise_to_reward(reward)
+        idx = self.model.rng.choice(len(self.policy), p=self.policy)
+        coord = tuple(self.meshgrid_flatten[idx])
+        reward = float(self.reward_environment[coord])
+        reward = self._add_noise_to_reward(reward)
 
         self.X_observations.append(coord)
         self.y_observations.append(reward)
@@ -481,11 +477,7 @@ class SocialGPAgent(CellAgent):
     def step(self):
         # first choice is random
         if len(self.X_observations) == 0:
-            if "fitting" in self.model.model_type:
-                self.X_observations.append(tuple(self.model.individual_choices[0]))
-                self.y_observations.append(self.model.individual_rewards[0])
-            else:
-                self._random_choice()
+            self._random_choice()
             return
 
         self._make_choice()
