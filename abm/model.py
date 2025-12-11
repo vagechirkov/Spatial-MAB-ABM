@@ -186,11 +186,9 @@ class SocialGPModel(mesa.Model):
 class SocialGPModelSBI(mesa.Model):
     def __init__(
             self,
-            child_maps=None,
+            child_maps,
             rng = None,
             n: int = 4,
-            rho_parent_child: float = 0.60,
-            rho_child_child: float = 0.60,
             grid_size: int = 11,
             model_type: str = "SG",
             length_scale_private: float | None = 2.0,
@@ -203,7 +201,6 @@ class SocialGPModelSBI(mesa.Model):
             beta_social: float | None = 0.7,
             tau: float = 1.0,
             reward_noise_sd : float = 0,
-            corr_matrix=None,
     ):
         super().__init__(rng=rng)
 
@@ -212,34 +209,6 @@ class SocialGPModelSBI(mesa.Model):
         self.model_type = model_type
         self.attention_budget = 4
         self.reward_noise_sd = reward_noise_sd
-
-        # 1) use provided maps (legacy behavior)
-        if child_maps is not None:
-            child_maps = list(child_maps)
-        # 2) generate from full correlation matrix
-        elif corr_matrix is not None:
-            _, child_maps = make_parent_and_children_cholesky2(
-                rng=self.rng,
-                grid_size=grid_size,
-                n_children=n,
-                length_scale=2.0,
-                corr_matrix=corr_matrix,
-            )
-            child_maps = [_min_max(c) for c in child_maps]
-        # 3) fallback: scalar correlation sampling (matches original SBI use)
-        else:
-            rho_parent_child = rho_child_child
-            _, child_maps = sample_children_with_corr(
-                rng=self.rng,
-                n_children=n,
-                length_scale=2.0,
-                rho_parent_child=rho_parent_child,
-                rho_child_child=rho_child_child,
-                tol=0.1,
-                max_tries=1000,
-                grid_size=grid_size
-            )
-            child_maps = [_min_max(c) for c in child_maps]
 
         if length_scale_is_identical:
             length_scale_social = length_scale_private
