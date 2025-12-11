@@ -6,7 +6,14 @@ import pandas as pd
 from agent import SocialGPAgent
 from mesa import DataCollector
 from mesa.discrete_space import Network
-from rewards import sample_children_with_corr
+from rewards import (
+    sample_children_with_corr,
+    make_parent_and_children_cholesky2,
+    build_corr_matrix_option1,
+    build_corr_matrix_option2,
+    build_corr_matrix_option3,
+    _min_max,
+)
 from scipy.spatial.distance import cosine
 
 
@@ -78,6 +85,8 @@ class SocialGPModel(mesa.Model):
         gamma_pa: float = 2.0,
         seed: int | None = None,
         reward_noise_sd : float = 0.01,
+        corr_matrix=None, # for new environment matrix
+        child_maps=None,  # for new environment matrix
     ):
         super().__init__(seed=seed)
 
@@ -88,20 +97,39 @@ class SocialGPModel(mesa.Model):
         self.network_type = network_type
         self.gamma_pa = gamma_pa
         self.reward_noise_sd = reward_noise_sd
+        
+        # 1. If explicit maps are passed in (for testing the code)
+        if child_maps is not None:
+            # maybe sanity-check length == n
+            child_maps = list(child_maps)
 
-        rho_parent_child = rho_child_child
+        # 2. if a full correlation matrix is provided, use the new generator
+        elif corr_matrix is not None:
+            _, child_maps = make_parent_and_children_cholesky2(
+                rng=self.rng,
+                grid_size=grid_size,
+                n_children=n,
+                length_scale=2.0,
+                corr_matrix=corr_matrix,
+            )
+            # keep the reward scale consistent with the scalar-corr branch
+            child_maps = [_min_max(c) for c in child_maps]
 
-        # generate reward maps
-        _, child_maps = sample_children_with_corr(
-            rng=self.rng,
-            n_children=n,
-            length_scale=2.0,
-            rho_parent_child=rho_parent_child,
-            rho_child_child=rho_child_child,
-            tol=0.1,
-            max_tries=1000,
-            grid_size=grid_size
-        )
+        # 3. original scalar-correlation behavior
+        else:
+            rho_parent_child = rho_child_child
+
+            # generate reward maps
+            _, child_maps = sample_children_with_corr(
+                rng=self.rng,
+                n_children=n,
+                length_scale=2.0,
+                rho_parent_child=rho_parent_child,
+                rho_child_child=rho_child_child,
+                tol=0.1,
+                max_tries=1000,
+                grid_size=grid_size
+            )
 
         # generate network
         G = _build_network(network_type, child_maps, gamma_pa, self.rng)
@@ -158,9 +186,11 @@ class SocialGPModel(mesa.Model):
 class SocialGPModelSBI(mesa.Model):
     def __init__(
             self,
-            child_maps,
+            child_maps=None,
             rng = None,
             n: int = 4,
+            rho_parent_child: float = 0.60,
+            rho_child_child: float = 0.60,
             grid_size: int = 11,
             model_type: str = "SG",
             length_scale_private: float | None = 2.0,
@@ -173,6 +203,7 @@ class SocialGPModelSBI(mesa.Model):
             beta_social: float | None = 0.7,
             tau: float = 1.0,
             reward_noise_sd : float = 0,
+            corr_matrix=None,
     ):
         super().__init__(rng=rng)
 
@@ -181,6 +212,34 @@ class SocialGPModelSBI(mesa.Model):
         self.model_type = model_type
         self.attention_budget = 4
         self.reward_noise_sd = reward_noise_sd
+
+        # 1) use provided maps (legacy behavior)
+        if child_maps is not None:
+            child_maps = list(child_maps)
+        # 2) generate from full correlation matrix
+        elif corr_matrix is not None:
+            _, child_maps = make_parent_and_children_cholesky2(
+                rng=self.rng,
+                grid_size=grid_size,
+                n_children=n,
+                length_scale=2.0,
+                corr_matrix=corr_matrix,
+            )
+            child_maps = [_min_max(c) for c in child_maps]
+        # 3) fallback: scalar correlation sampling (matches original SBI use)
+        else:
+            rho_parent_child = rho_child_child
+            _, child_maps = sample_children_with_corr(
+                rng=self.rng,
+                n_children=n,
+                length_scale=2.0,
+                rho_parent_child=rho_parent_child,
+                rho_child_child=rho_child_child,
+                tol=0.1,
+                max_tries=1000,
+                grid_size=grid_size
+            )
+            child_maps = [_min_max(c) for c in child_maps]
 
         if length_scale_is_identical:
             length_scale_social = length_scale_private
@@ -306,7 +365,48 @@ class SocialGPModelReplication(mesa.Model):
 if __name__ == "__main__":
     import seaborn as sns
     import matplotlib.pyplot as plt
-    m = SocialGPModel(n=5, model_type="SG-ICM", network_type='directed_one_to_four')
+
+    # 1. If explicit maps are passed in (for testing the code)
+    n_agents = 4
+    grid_size = 11
+    # correlation matrix must include the parent + all children (n_agents + 1)
+    R = np.array([
+    [1.0,  0.0, -0.6,  0.6,  0.0],
+    [0.0,  1.0,  0.2, -0.3,  0.0],
+    [-0.6, 0.2,  1.0,  0.1,  0.0],
+    [0.6, -0.3, 0.1,  1.0,  0.0],
+    [0.0,  0.0,  0.0,  0.0,  1.0],
+    ])
+    parent, children = make_parent_and_children_cholesky2(
+        rng=None,
+        grid_size=grid_size,
+        n_children=n_agents,
+        length_scale=2.0,
+        corr_matrix=R,
+    )
+    m = SocialGPModel(
+        n=n_agents,
+        model_type="SG-ICM",
+        network_type="directed_one_to_four",
+        child_maps=children,    # triggers the child_maps branch
+    )
+    
+    # 2. if a full correlation matrix is provided, use the new generator
+    n_agents = 3
+    grid_size = 11
+    R = build_corr_matrix_option1()
+    # R = build_corr_matrix_option2(eps=0.2)
+    # R = build_corr_matrix_option3()
+    m = SocialGPModel(
+        n=n_agents,
+        model_type="SG-ICM",
+        network_type="directed_one_to_four",
+        corr_matrix=R, # triggers the corr_matrix branch
+    )
+    
+    # 3. original scalar-correlation behavior
+    # m = SocialGPModel(n=5, model_type="SG-ICM", network_type='directed_one_to_four')
+    
     for _ in range(15):
         m.step()
 
@@ -347,4 +447,3 @@ if __name__ == "__main__":
     plt.show()
 
     batch_results.head()
-
