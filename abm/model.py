@@ -126,9 +126,8 @@ class SocialGPModel(mesa.Model):
             # keep the reward scale consistent with the scalar-corr branch
             child_maps = [_min_max(c) for c in [parent] + child_maps]
 
-            # update rho with the vector from corr_matrix
-            rho = corr_matrix[:, 0]
-            rho = [rho] * self.num_agents
+            assert np.array(rho).size == len(child_maps) == self.num_agents
+            rho = [rho]
 
         # 3. original scalar-correlation behavior
         else:
@@ -241,6 +240,7 @@ if __name__ == "__main__":
         network_type="directed_one_to_four",
         corr_matrix=R,  # triggers the corr_matrix branch
         tau_sampling=True,
+        rho=R[0, :]
     )
 
     # 3. original scalar-correlation behavior

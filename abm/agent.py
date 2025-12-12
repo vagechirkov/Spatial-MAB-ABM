@@ -273,7 +273,7 @@ class SocialGPAgent(CellAgent):
         self.beta_social = beta_social
 
         self.tau = tau
-        self.rho = rho
+        self.rho = np.array(rho).flatten()
 
         # memory buffers
         self.X_observations: list[tuple[int, int]] = []
