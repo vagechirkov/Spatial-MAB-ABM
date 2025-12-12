@@ -164,9 +164,10 @@ class SocialGPModel(mesa.Model):
             self,
             self.num_agents,
             cell=self.grid.all_cells.cells,
-            reward_environment=self.rng.choice(
-                child_maps, replace=False, size=self.num_agents
-            ),
+            reward_environment=child_maps,
+            # reward_environment=self.rng.choice(
+            #     child_maps, replace=False, size=self.num_agents
+            # ),
             model_type=agent_model_type,
             length_scale_private=length_scale_private,
             length_scale_social=length_scale_social,
