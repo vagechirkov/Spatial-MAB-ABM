@@ -81,6 +81,7 @@ class SocialGPModel(mesa.Model):
         beta_private: float | None = 0.7,
         beta_social: float | None = 0.7,
         tau: float = 1.0,
+        tau_sampling: bool = False,
         network_type: str = "fully_connected",
         attention_budget: int = 4,
         gamma_pa: float = 2.0,
@@ -100,6 +101,11 @@ class SocialGPModel(mesa.Model):
 
         # check the model types
         assert model_type in ["SG", "SG-ICM", "AS"]
+
+        # sample parameters from distribution
+        if tau_sampling:
+            tau = self.rng.lognormal(mean=-4.5, sigma=0.75)
+            tau = max(0.001, min(tau, 1.0))
         
         # 1. If explicit maps are passed in (for testing the code)
         if child_maps is not None:
@@ -183,6 +189,7 @@ class SocialGPModel(mesa.Model):
                 "reward": lambda a: a.last_reward + 0.5,
                 "cumulative_reward": lambda a: a.total_reward + 0.5,
                 "model_type": lambda a: a.model_type,
+                "tau": lambda a: a.tau,
             },
         )
 
@@ -233,6 +240,7 @@ if __name__ == "__main__":
         model_type="SG-ICM",
         network_type="directed_one_to_four",
         corr_matrix=R,  # triggers the corr_matrix branch
+        tau_sampling=True,
     )
 
     # 3. original scalar-correlation behavior
