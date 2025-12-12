@@ -77,7 +77,7 @@ class SocialGPModel(mesa.Model):
         length_scale_is_identical: bool = True,
         observation_noise_private: float | None = 0.1,
         observation_noise_social: float | None = 0.1,
-        rho: float = 0.60,
+        rho: float | np.ndarray = 0.60,
         beta_private: float | None = 0.7,
         beta_social: float | None = 0.7,
         tau: float = 1.0,
@@ -105,10 +105,12 @@ class SocialGPModel(mesa.Model):
         if child_maps is not None:
             # maybe sanity-check length == n
             child_maps = list(child_maps)
+            assert np.array(rho).size == len(child_maps) == self.num_agents
+            rho = [rho]
 
         # 2. if a full correlation matrix is provided, use the new generator
         elif corr_matrix is not None:
-            _, child_maps = make_parent_and_children_cholesky2(
+            parent, child_maps = make_parent_and_children_cholesky2(
                 rng=self.rng,
                 grid_size=grid_size,
                 n_children=n,
@@ -116,7 +118,11 @@ class SocialGPModel(mesa.Model):
                 corr_matrix=corr_matrix,
             )
             # keep the reward scale consistent with the scalar-corr branch
-            child_maps = [_min_max(c) for c in child_maps]
+            child_maps = [_min_max(c) for c in [parent] + child_maps]
+
+            # update rho with the vector from corr_matrix
+            rho = corr_matrix[:, 0]
+            rho = [rho] * self.num_agents
 
         # 3. original scalar-correlation behavior
         else:
@@ -184,21 +190,23 @@ class SocialGPModel(mesa.Model):
         self.agents.do("step")
         self.datacollector.collect(self)
 
+
 if __name__ == "__main__":
     import seaborn as sns
     import matplotlib.pyplot as plt
 
     # 1. If explicit maps are passed in (for testing the code)
-    n_agents = 4
+    n_agents = 5
     grid_size = 11
     # correlation matrix must include the parent + all children (n_agents + 1)
     R = np.array([
-    [1.0,  0.0, -0.6,  0.6,  0.0],
-    [0.0,  1.0,  0.2, -0.3,  0.0],
-    [-0.6, 0.2,  1.0,  0.1,  0.0],
-    [0.6, -0.3, 0.1,  1.0,  0.0],
-    [0.0,  0.0,  0.0,  0.0,  1.0],
+        [1.0, 0.0, -0.6, 0.6, 0.0],
+        [0.0, 1.0, 0.2, -0.3, 0.0],
+        [-0.6, 0.2, 1.0, 0.1, 0.0],
+        [0.6, -0.3, 0.1, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 1.0],
     ])
+
     parent, children = make_parent_and_children_cholesky2(
         rng=None,
         grid_size=grid_size,
@@ -210,11 +218,12 @@ if __name__ == "__main__":
         n=n_agents,
         model_type="SG-ICM",
         network_type="directed_one_to_four",
-        child_maps=children,    # triggers the child_maps branch
+        child_maps=[parent] + children,  # triggers the child_maps branch
+        rho=np.array([1.0, 0.0, -0.6, 0.6, 0.0])
     )
-    
+
     # 2. if a full correlation matrix is provided, use the new generator
-    n_agents = 3
+    n_agents = 4
     grid_size = 11
     R = build_corr_matrix_option1()
     # R = build_corr_matrix_option2(eps=0.2)
@@ -223,12 +232,12 @@ if __name__ == "__main__":
         n=n_agents,
         model_type="SG-ICM",
         network_type="directed_one_to_four",
-        corr_matrix=R, # triggers the corr_matrix branch
+        corr_matrix=R,  # triggers the corr_matrix branch
     )
-    
+
     # 3. original scalar-correlation behavior
     # m = SocialGPModel(n=5, model_type="SG-ICM", network_type='directed_one_to_four')
-    
+
     for _ in range(15):
         m.step()
 

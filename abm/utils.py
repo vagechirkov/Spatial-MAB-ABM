@@ -34,10 +34,41 @@ class ICMKernel(Kernel):
 
         Kxy = self.base(X_feat, Y_feat, eval_gradient=eval_gradient)
 
-        # Coregionalization matrix (all off-diags = rho, diags = 1)
-        Bxy = self.rho * (X_out[:, None] != Y_out[None, :]) + (
-            X_out[:, None] == Y_out[None, :]
-        )
+        if np.array(self.rho).size == 1:
+            # Coregionalization matrix (all off-diags = rho, diags = 1)
+            Bxy = self.rho * (X_out[:, None] != Y_out[None, :]) + (
+                X_out[:, None] == Y_out[None, :]
+            )
+        else:
+            # Task Correlation Matrix (Size T x T)
+            rho_vec = np.array(self.rho)
+            n_tasks = len(rho_vec)
+
+            # Start with Identity (1s on diagonal, 0s elsewhere)
+            B_task = np.eye(n_tasks)
+
+            # Apply the "Hub" logic: Row 0 and Col 0 take values from rho
+            B_task[0, :] = rho_vec
+            B_task[:, 0] = rho_vec
+
+            # Project onto the full sample size
+            Bxy = B_task[X_out[:, None], Y_out[None, :]]
+
+            # Alternative (slow) solution:
+            # Bxy = 0.0 * (X_out[:, None] != Y_out[None, :]) + (
+            #         X_out[:, None] == Y_out[None, :]
+            # )
+            #
+            # for i, _rho in enumerate(np.array(self.rho)):
+            #     rows_task_0 = (X_out == 0)
+            #     cols_task_1 = (Y_out == i)
+            #
+            #     Bxy[np.ix_(rows_task_0, cols_task_1)] = _rho
+            #
+            #     rows_task_i = (X_out == i)
+            #     cols_task_0 = (Y_out == 0)
+            #     Bxy[np.ix_(rows_task_i, cols_task_0)] = _rho
+
         K = Bxy * Kxy
 
         return K
