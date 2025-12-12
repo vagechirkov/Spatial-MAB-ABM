@@ -463,7 +463,8 @@ class SocialGPAgent(CellAgent):
             raise ValueError(f"Unknown model_type '{self.model_type}'")
 
         probs = logits.ravel()
-        probs /= probs.sum() + 1e-12
+        probs += 1e-12
+        probs /= probs.sum()
         self.policy = probs
 
         idx = self.model.rng.choice(len(self.policy), p=self.policy)
