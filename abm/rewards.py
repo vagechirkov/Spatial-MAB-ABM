@@ -303,9 +303,9 @@ def build_corr_matrix_option1():
     A = parent (index 0)
     B, C, D = children (indices 1, 2, 3)
     """
-    corr_AB = 0.0   # r(A,B)
-    corr_AC = -0.6  # r(A,C)
-    corr_AD = 0.6   # r(A,D)
+    corr_AB = 0.6   # r(A,B)
+    corr_AC = 0.0  # r(A,C)
+    corr_AD = -0.6   # r(A,D)
 
     corr_BC = 0.0   # r(B,C)
     corr_BD = 0.0   # r(B,D)
