@@ -82,6 +82,8 @@ class SocialGPModel(mesa.Model):
         beta_social: float | None = 0.7,
         tau: float = 1.0,
         tau_sampling: bool = False,
+        beta_sampling: bool = False,
+        length_scale_sampling: bool = False,
         network_type: str = "fully_connected",
         attention_budget: int = 4,
         gamma_pa: float = 2.0,
@@ -102,10 +104,35 @@ class SocialGPModel(mesa.Model):
         # check the model types
         assert model_type in ["SG", "SG-ICM", "AS"]
 
-        # sample parameters from distribution
+        # sample parameters from priors (matching Witt et al. repo)
         if tau_sampling:
-            tau = self.rng.lognormal(mean=-4.5, sigma=0.75)
-            tau = max(0.001, min(tau, 1.0))
+            tau = float(self.rng.lognormal(mean=-4.5, sigma=0.9))
+
+        def _sample_positive_from_prior(mean, sigma, lower=1e-9):
+            """Sample log-normal and guard against zeros."""
+            draw = float(self.rng.lognormal(mean=mean, sigma=sigma))
+            return max(draw, lower)
+
+        if length_scale_sampling:
+            # λ prior: LogNormal(-0.75, 0.5)
+            length_scale_private = _sample_positive_from_prior(
+                mean=-0.75, sigma=0.5, lower=1e-6
+            )
+            if length_scale_is_identical:
+                length_scale_social = length_scale_private
+            else:
+                length_scale_social = _sample_positive_from_prior(
+                    mean=-0.75, sigma=0.5, lower=1e-6
+                )
+
+        if beta_sampling:
+            # β prior: LogNormal(-0.75, 0.5)
+            beta_private = _sample_positive_from_prior(
+                mean=-0.75, sigma=0.5, lower=1e-6
+            )
+            beta_social = _sample_positive_from_prior(
+                mean=-0.75, sigma=0.5, lower=1e-6
+            )
         
         # 1. If explicit maps are passed in (for testing the code)
         if child_maps is not None:

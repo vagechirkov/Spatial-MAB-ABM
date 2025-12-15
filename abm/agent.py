@@ -44,7 +44,9 @@ def asocial_generalization(
         random_state,
     )
     value_ucb = gp_mean + beta * gp_std
-    return np.exp(value_ucb / tau)
+    logits = value_ucb / tau
+    logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+    return np.exp(logits)
 
 def social_generalization(
     X_obs_private: np.ndarray,
@@ -85,7 +87,9 @@ def social_generalization(
     value_ucb = gp_mean + beta * gp_std
     if subtract_max_value:
         value_ucb -= np.max(value_ucb)
-    return np.exp(value_ucb / tau)  # soft-max logits (unnormalised)
+    logits = value_ucb / tau
+    logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+    return np.exp(logits)  # soft-max logits (unnormalised)
 
 
 def value_shaping(
@@ -177,7 +181,9 @@ def value_shaping(
     else:
         raise NotImplementedError(f"{value_shaping_type} is not implemented.")
 
-    return np.exp(value_final / tau)  # unnormalised soft-max
+    logits = value_final / tau
+    logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+    return np.exp(logits)  # unnormalised soft-max
 
 
 def social_generalization_icm(
@@ -230,7 +236,9 @@ def social_generalization_icm(
     ucb = gp_mean_p.reshape(-1, 1) + beta * gp_std_p.reshape(-1, 1)
     if subtract_max_value:
         ucb -= np.max(ucb)
-    return np.exp(ucb / tau)
+    logits = ucb / tau
+    logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+    return np.exp(logits)
 
 
 class SocialGPAgent(CellAgent):
@@ -463,8 +471,15 @@ class SocialGPAgent(CellAgent):
             raise ValueError(f"Unknown model_type '{self.model_type}'")
 
         probs = logits.ravel()
+        probs = np.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
         probs += 1e-12
-        probs /= probs.sum()
+        total = probs.sum()
+        if (not np.isfinite(total)) or (total <= 0.0):
+            probs = self.uniform_probs.copy()
+        else:
+            probs /= total
+            if not np.isfinite(probs).all():
+                probs = self.uniform_probs.copy()
         self.policy = probs
 
         idx = self.model.rng.choice(len(self.policy), p=self.policy)
