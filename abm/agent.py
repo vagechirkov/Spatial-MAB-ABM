@@ -363,9 +363,20 @@ class SocialGPAgent(CellAgent):
 
     @property
     def neg_log_likelihood(self) -> float:
-        last_choice_is_random = self.model.random_choices[self.model.steps - 1]
-        if (self.model.steps == 1) or last_choice_is_random:
+        # First choice is random by design, so we do not score it.
+        if len(self.X_observations) < 2:
             return 0.0
+
+        # Some experiments track whether the last choice was random at the model level.
+        # Fall back to "not random" if the attribute is missing.
+        random_choices = getattr(self.model, "random_choices", None)
+        if random_choices is not None:
+            try:
+                if self.model.steps - 1 < len(random_choices) and random_choices[self.model.steps - 1]:
+                    return 0.0
+            except Exception:
+                pass
+
         return -np.log(self.policy[self.meshgrid_dict[self.X_observations[-1]]])
 
     def _gather_social_info(self) -> tuple[list[np.ndarray], list[np.ndarray]]:

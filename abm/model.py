@@ -217,6 +217,13 @@ class SocialGPModel(mesa.Model):
                 "cumulative_reward": lambda a: a.total_reward + 0.5,
                 "model_type": lambda a: a.model_type,
                 "tau": lambda a: a.tau,
+                "neg_log_likelihood": lambda a: a.neg_log_likelihood,
+                "last_choice_distance_private": lambda a: a.last_choice_distance_private,
+                "avg_choice_distance_private": lambda a: a.avg_choice_distance_private,
+                "nearest_choice_distance_private": lambda a: a.nearest_choice_distance_private,
+                "last_choice_distance_social": lambda a: a.last_choice_distance_social,
+                "avg_choice_distance_social": lambda a: a.avg_choice_distance_social,
+                "nearest_choice_distance_social": lambda a: a.nearest_choice_distance_social,
             },
         )
 
