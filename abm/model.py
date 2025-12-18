@@ -214,7 +214,7 @@ class SocialGPModel(mesa.Model):
             agent_reporters={
                 "choice": lambda a: a.last_choice,
                 "reward": lambda a: a.last_reward + 0.5,
-                "cumulative_reward": lambda a: a.total_reward + 0.5,
+                "cumulative_reward": lambda a: a.total_reward + 0.5 * a.model.steps,
                 "model_type": lambda a: a.model_type,
                 "tau": lambda a: a.tau,
                 "neg_log_likelihood": lambda a: a.neg_log_likelihood,
