@@ -3,6 +3,7 @@ from mesa.discrete_space import CellAgent
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, Kernel
 
+from rho_update import RhoKalmanUpdater, TrustRWUpdater
 from utils import ICMKernel, LMCKernel, _stack_targets, _stack_tasks
 
 
@@ -258,6 +259,12 @@ class SocialGPAgent(CellAgent):
         beta_social: float,
         tau: float,
         rho: float,
+        rho_update_rule: str | None = None,
+        rho_update_basis: str = "private",
+        rho_update_eta: float = 0.1,
+        rho_update_sigma_zeta: float = 1e-4,
+        rho_update_rho_max: float = 1.0,
+        rho_update_init: float = 0.0,
     ):
         super().__init__(model)
 
@@ -282,6 +289,15 @@ class SocialGPAgent(CellAgent):
 
         self.tau = tau
         self.rho = np.array(rho).flatten()
+        self.rho_update_rule = rho_update_rule
+        self.rho_update_basis = rho_update_basis
+        self.rho_update_eta = rho_update_eta
+        self.rho_update_sigma_zeta = rho_update_sigma_zeta
+        self.rho_update_rho_max = rho_update_rho_max
+        self.rho_update_init = rho_update_init
+
+        self._rho_updater = None
+        self._social_obs_index: dict[int, int] = {}
 
         # memory buffers
         self.X_observations: list[tuple[int, int]] = []
@@ -322,7 +338,7 @@ class SocialGPAgent(CellAgent):
 
     @property
     def last_choice_distance_social(self) -> float:
-        X_soc, _ = self._gather_social_info()
+        X_soc, _, _ = self._gather_social_info()
         if len(X_soc) < 1 or len(X_soc[0]) < 1:
             return 0.0
         social_last_choices = np.array([_x_soc[-1] for _x_soc in X_soc])
@@ -345,7 +361,7 @@ class SocialGPAgent(CellAgent):
 
     @property
     def nearest_choice_distance_social(self) -> float:
-        X_soc, _ = self._gather_social_info()
+        X_soc, _, _ = self._gather_social_info()
         if len(X_soc) < 1 or len(X_soc[0]) < 1:
             return 0.0
         social_choices = np.vstack(X_soc)
@@ -354,7 +370,7 @@ class SocialGPAgent(CellAgent):
 
     @property
     def avg_choice_distance_social(self) -> float:
-        X_soc, _ = self._gather_social_info()
+        X_soc, _, _ = self._gather_social_info()
         if len(X_soc) < 1 or len(X_soc[0]) < 1:
             return 0.0
         social_choices = np.vstack(X_soc)
@@ -379,20 +395,175 @@ class SocialGPAgent(CellAgent):
 
         return -np.log(self.policy[self.meshgrid_dict[self.X_observations[-1]]])
 
-    def _gather_social_info(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    def _gather_social_info(
+        self,
+    ) -> tuple[list[np.ndarray], list[np.ndarray], list[int]]:
         neighbours = list(self.model.grid[self.cell.coordinate].neighborhood)
         #TODO: more this to the network generation script
         # neighbours = neighbours[: self.model.attention_budget]  # w = 4
 
-        X_soc, y_soc = [], []
+        X_soc, y_soc, neighbor_ids = [], [], []
         # observe only the choices before the last step
-        history_horizon = self.model.steps - 1
+        history_horizon = max(self.model.steps - 1, 0)
 
         for neighbour in neighbours:
             neighbor_agent = neighbour.agents[0]
-            X_soc.append(np.array(neighbor_agent.X_observations[:history_horizon]))
-            y_soc.append(np.array(neighbor_agent.y_observations[:history_horizon]).reshape(-1, 1))
-        return X_soc, y_soc
+            neighbor_ids.append(neighbor_agent.unique_id)
+            X_soc.append(
+                np.array(neighbor_agent.X_observations[:history_horizon]).reshape(-1, 2)
+            )
+            y_soc.append(
+                np.array(neighbor_agent.y_observations[:history_horizon]).reshape(-1, 1)
+            )
+        return X_soc, y_soc, neighbor_ids
+
+    def _init_rho_updater(self, neighbor_ids: list[int]) -> None:
+        if self._rho_updater is not None:
+            return
+        if self.rho_update_rule is None:
+            return
+        if self.model_type != "SG-ICM":
+            return
+
+        if self.rho_update_rule == "rho_kalman":
+            self._rho_updater = RhoKalmanUpdater(
+                rho_init=self.rho_update_init,
+                rho_max=self.rho_update_rho_max,
+                sigma_zeta=self.rho_update_sigma_zeta,
+                observation_noise=self.observation_noise_social,
+            )
+        elif self.rho_update_rule == "trust_rw":
+            self._rho_updater = TrustRWUpdater(
+                rho_init=self.rho_update_init,
+                rho_max=self.rho_update_rho_max,
+                sigma_zeta=self.rho_update_sigma_zeta,
+                eta=self.rho_update_eta,
+            )
+        else:
+            raise ValueError(f"Unknown rho_update_rule '{self.rho_update_rule}'")
+
+        self._rho_updater.ensure_neighbors(neighbor_ids)
+
+    def _get_rho_vector(self, neighbor_ids: list[int]) -> np.ndarray:
+        if self._rho_updater is None:
+            return self.rho
+        return self._rho_updater.get_rho_vector(neighbor_ids)
+
+    def _predict_update_private(
+        self,
+        X_query: np.ndarray,
+        X_priv: np.ndarray,
+        y_priv: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if len(X_priv) < 1:
+            return np.zeros(len(X_query)), np.zeros(len(X_query))
+
+        gp_mean, gp_std = gp_base_generalization(
+            X_priv,
+            y_priv,
+            X_query,
+            RBF(length_scale=self.length_scale_private),
+            np.ones(len(X_priv)) * self.observation_noise_private,
+            self.model.rng.__getstate__(),
+        )
+        return gp_mean.ravel(), (gp_std**2).ravel()
+
+    def _predict_update_icm(
+        self,
+        X_query: np.ndarray,
+        X_priv: np.ndarray,
+        y_priv: np.ndarray,
+        X_soc_prefix: list[np.ndarray],
+        y_soc_prefix: list[np.ndarray],
+        rho_vec: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if len(X_priv) < 1:
+            return np.zeros(len(X_query)), np.zeros(len(X_query))
+
+        X_all = _stack_tasks(X_priv, X_soc_prefix)
+        Y_all = _stack_targets(y_priv, y_soc_prefix)
+        kernel = ICMKernel(length_scale=self.length_scale_private, rho=rho_vec)
+        observation_noise = np.hstack(
+            [np.ones(len(y_priv)) * self.observation_noise_private]
+            + [
+                np.ones(len(y_soc)) * self.observation_noise_social
+                for y_soc in y_soc_prefix
+            ]
+        )
+
+        X_star_priv = np.hstack([X_query, np.zeros((len(X_query), 1))])
+        gp_mean, gp_std = gp_base_generalization(
+            X_all,
+            Y_all.ravel(),
+            X_star_priv,
+            kernel,
+            observation_noise,
+            self.model.rng.__getstate__(),
+        )
+        return gp_mean.ravel(), (gp_std**2).ravel()
+
+    def _update_rho(
+        self,
+        X_priv: np.ndarray,
+        y_priv: np.ndarray,
+        X_soc: list[np.ndarray],
+        y_soc: list[np.ndarray],
+        neighbor_ids: list[int],
+    ) -> None:
+        if not neighbor_ids:
+            return
+
+        self._init_rho_updater(neighbor_ids)
+        if self._rho_updater is None:
+            return
+
+        new_points = []
+        new_rewards = []
+        update_neighbor_ids = []
+        update_counts = []
+        X_soc_prefix, y_soc_prefix = [], []
+
+        for idx, neighbor_id in enumerate(neighbor_ids):
+            start = self._social_obs_index.get(neighbor_id, 0)
+            total = len(X_soc[idx])
+
+            X_soc_prefix.append(X_soc[idx][:start])
+            y_soc_prefix.append(y_soc[idx][:start])
+
+            if start < total:
+                coords = X_soc[idx][start:total]
+                rewards = y_soc[idx][start:total].reshape(-1)
+                new_points.append(coords)
+                new_rewards.append(rewards)
+                update_neighbor_ids.append(neighbor_id)
+                update_counts.append(len(coords))
+
+            self._social_obs_index[neighbor_id] = total
+
+        if not new_points:
+            return
+
+        X_query = np.vstack(new_points)
+
+        if self.rho_update_basis == "private":
+            mean_pred, var_pred = self._predict_update_private(X_query, X_priv, y_priv)
+        elif self.rho_update_basis == "full":
+            rho_vec = self._get_rho_vector(neighbor_ids)
+            mean_pred, var_pred = self._predict_update_icm(
+                X_query, X_priv, y_priv, X_soc_prefix, y_soc_prefix, rho_vec
+            )
+        else:
+            raise ValueError(f"Unknown rho_update_basis '{self.rho_update_basis}'")
+
+        mean_list, var_list, reward_list = [], [], []
+        offset = 0
+        for count, rewards in zip(update_counts, new_rewards):
+            mean_list.append(mean_pred[offset : offset + count])
+            var_list.append(var_pred[offset : offset + count])
+            reward_list.append(rewards)
+            offset += count
+
+        self._rho_updater.update(update_neighbor_ids, mean_list, var_list, reward_list)
 
     def _add_noise_to_reward(self, reward: float):
         added_noise = 0
@@ -413,7 +584,12 @@ class SocialGPAgent(CellAgent):
         y_priv = np.array(self.y_observations).reshape(-1, 1)
 
         if self.model_type in ["SG-ICM", "SG-LCM"]:
-            X_soc, y_soc = self._gather_social_info()
+            X_soc, y_soc, neighbor_ids = self._gather_social_info()
+            if self.model_type == "SG-ICM":
+                self._update_rho(X_priv, y_priv, X_soc, y_soc, neighbor_ids)
+                rho_vec = self._get_rho_vector(neighbor_ids)
+            else:
+                rho_vec = self.rho
             logits = social_generalization_icm(
                 X_priv,
                 y_priv,
@@ -425,7 +601,7 @@ class SocialGPAgent(CellAgent):
                 observation_noise_private=self.observation_noise_private,
                 observation_noise_social=self.observation_noise_social,
                 beta=self.beta_private,
-                rho=self.rho,
+                rho=rho_vec,
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__(),
                 model=self.model_type.split("-")[1],
@@ -433,7 +609,7 @@ class SocialGPAgent(CellAgent):
             )
         elif "SG" in self.model_type:
 
-            X_soc, y_soc = self._gather_social_info()
+            X_soc, y_soc, _ = self._gather_social_info()
             logits = social_generalization(
                 X_priv,
                 y_priv,
@@ -449,7 +625,7 @@ class SocialGPAgent(CellAgent):
                 subtract_max_value=True
             )
         elif self.model_type in ["VS-N", "VS-F", "VS-CK"]:
-            X_soc, y_soc = self._gather_social_info()
+            X_soc, y_soc, _ = self._gather_social_info()
             logits = value_shaping(
                 X_priv,
                 y_priv,
