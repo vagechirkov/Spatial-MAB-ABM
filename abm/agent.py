@@ -44,7 +44,9 @@ def asocial_generalization(
         random_state,
     )
     value_ucb = gp_mean + beta * gp_std
-    return np.exp(value_ucb / tau)
+    logits = value_ucb / tau
+    logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+    return np.exp(logits)
 
 def social_generalization(
     X_obs_private: np.ndarray,
@@ -85,7 +87,9 @@ def social_generalization(
     value_ucb = gp_mean + beta * gp_std
     if subtract_max_value:
         value_ucb -= np.max(value_ucb)
-    return np.exp(value_ucb / tau)  # soft-max logits (unnormalised)
+    logits = value_ucb / tau
+    logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+    return np.exp(logits)  # soft-max logits (unnormalised)
 
 
 def value_shaping(
@@ -177,7 +181,9 @@ def value_shaping(
     else:
         raise NotImplementedError(f"{value_shaping_type} is not implemented.")
 
-    return np.exp(value_final / tau)  # unnormalised soft-max
+    logits = value_final / tau
+    logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+    return np.exp(logits)  # unnormalised soft-max
 
 
 def social_generalization_icm(
@@ -230,7 +236,9 @@ def social_generalization_icm(
     ucb = gp_mean_p.reshape(-1, 1) + beta * gp_std_p.reshape(-1, 1)
     if subtract_max_value:
         ucb -= np.max(ucb)
-    return np.exp(ucb / tau)
+    logits = ucb / tau
+    logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+    return np.exp(logits)
 
 
 class SocialGPAgent(CellAgent):
@@ -241,6 +249,7 @@ class SocialGPAgent(CellAgent):
         model,
         cell,
         reward_environment: np.ndarray,
+        model_type: str,
         length_scale_private: float,
         length_scale_social: float,
         observation_noise_private: float,
@@ -254,6 +263,9 @@ class SocialGPAgent(CellAgent):
 
         # graph node the agent occupies
         self.cell = cell
+
+        # model type
+        self.model_type = model_type
 
         # reward landscape specific to this agent
         self.reward_environment = reward_environment
@@ -269,7 +281,7 @@ class SocialGPAgent(CellAgent):
         self.beta_social = beta_social
 
         self.tau = tau
-        self.rho = rho
+        self.rho = np.array(rho).flatten()
 
         # memory buffers
         self.X_observations: list[tuple[int, int]] = []
@@ -351,9 +363,20 @@ class SocialGPAgent(CellAgent):
 
     @property
     def neg_log_likelihood(self) -> float:
-        last_choice_is_random = self.model.random_choices[self.model.steps - 1]
-        if (self.model.steps == 1) or last_choice_is_random:
+        # First choice is random by design, so we do not score it.
+        if len(self.X_observations) < 2:
             return 0.0
+
+        # Some experiments track whether the last choice was random at the model level.
+        # Fall back to "not random" if the attribute is missing.
+        random_choices = getattr(self.model, "random_choices", None)
+        if random_choices is not None:
+            try:
+                if self.model.steps - 1 < len(random_choices) and random_choices[self.model.steps - 1]:
+                    return 0.0
+            except Exception:
+                pass
+
         return -np.log(self.policy[self.meshgrid_dict[self.X_observations[-1]]])
 
     def _gather_social_info(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
@@ -389,7 +412,7 @@ class SocialGPAgent(CellAgent):
         X_priv = np.array(self.X_observations)
         y_priv = np.array(self.y_observations).reshape(-1, 1)
 
-        if self.model.model_type in ["SG-ICM", "SG-LCM"]:
+        if self.model_type in ["SG-ICM", "SG-LCM"]:
             X_soc, y_soc = self._gather_social_info()
             logits = social_generalization_icm(
                 X_priv,
@@ -405,15 +428,12 @@ class SocialGPAgent(CellAgent):
                 rho=self.rho,
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__(),
-                model=self.model.model_type.split("-")[1],
+                model=self.model_type.split("-")[1],
                 subtract_max_value=True
             )
-        elif "SG" in self.model.model_type:
-            if "fitting" in self.model.model_type:
-                X_soc = [s_c[:self.model.steps - 1] for s_c in self.model.social_choices]
-                y_soc = [s_r[:self.model.steps - 1].reshape(-1, 1) for s_r in self.model.social_rewards]
-            else:
-                X_soc, y_soc = self._gather_social_info()
+        elif "SG" in self.model_type:
+
+            X_soc, y_soc = self._gather_social_info()
             logits = social_generalization(
                 X_priv,
                 y_priv,
@@ -428,7 +448,7 @@ class SocialGPAgent(CellAgent):
                 random_state=self.model.rng.__getstate__(),
                 subtract_max_value=True
             )
-        elif self.model.model_type in ["VS-N", "VS-F", "VS-CK"]:
+        elif self.model_type in ["VS-N", "VS-F", "VS-CK"]:
             X_soc, y_soc = self._gather_social_info()
             logits = value_shaping(
                 X_priv,
@@ -445,9 +465,9 @@ class SocialGPAgent(CellAgent):
                 alpha=self.rho,
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__(),
-                value_shaping_type=self.model.model_type.split("-")[1]
+                value_shaping_type=self.model_type.split("-")[1]
             )
-        elif self.model.model_type == "AS":
+        elif self.model_type == "AS":
             logits = asocial_generalization(
                 X_priv,
                 y_priv,
@@ -459,21 +479,24 @@ class SocialGPAgent(CellAgent):
                 random_state=self.model.rng.__getstate__()
             )
         else:
-            raise ValueError(f"Unknown model_type '{self.model.model_type}'")
+            raise ValueError(f"Unknown model_type '{self.model_type}'")
 
         probs = logits.ravel()
-        probs /= probs.sum() + 1e-12
+        probs = np.nan_to_num(probs, nan=0.0, posinf=0.0, neginf=0.0)
+        probs += 1e-12
+        total = probs.sum()
+        if (not np.isfinite(total)) or (total <= 0.0):
+            probs = self.uniform_probs.copy()
+        else:
+            probs /= total
+            if not np.isfinite(probs).all():
+                probs = self.uniform_probs.copy()
         self.policy = probs
 
-        if "fitting" in self.model.model_type:
-            inx = self.model.steps - 1
-            coord = tuple(self.model.individual_choices[inx])
-            reward = self.model.individual_rewards[inx]
-        else:
-            idx = self.model.rng.choice(len(self.policy), p=self.policy)
-            coord = tuple(self.meshgrid_flatten[idx])
-            reward = float(self.reward_environment[coord])
-            reward = self._add_noise_to_reward(reward)
+        idx = self.model.rng.choice(len(self.policy), p=self.policy)
+        coord = tuple(self.meshgrid_flatten[idx])
+        reward = float(self.reward_environment[coord])
+        reward = self._add_noise_to_reward(reward)
 
         self.X_observations.append(coord)
         self.y_observations.append(reward)
@@ -481,11 +504,7 @@ class SocialGPAgent(CellAgent):
     def step(self):
         # first choice is random
         if len(self.X_observations) == 0:
-            if "fitting" in self.model.model_type:
-                self.X_observations.append(tuple(self.model.individual_choices[0]))
-                self.y_observations.append(self.model.individual_rewards[0])
-            else:
-                self._random_choice()
+            self._random_choice()
             return
 
         self._make_choice()

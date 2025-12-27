@@ -91,10 +91,11 @@ def make_parent_and_children_cholesky2(
     # add a tiny jitter for numerical stability
     LSigma = np.linalg.cholesky(Sigma + 1e-10 * np.eye(Sigma.shape[0]))
     M = Sigma.shape[0]
-    n_total = n_children + 1
 
     # Task-level correlation matrix R
     if corr_matrix is not None:
+        n_total = n_children
+        n_children -= 1
         # Use the provided full correlation matrix
         R = np.asarray(corr_matrix, dtype=float)
         if R.shape != (n_total, n_total):
@@ -109,6 +110,7 @@ def make_parent_and_children_cholesky2(
         if not np.allclose(np.diag(R), 1.0, atol=1e-8):
             raise ValueError("corr_matrix must have ones on the diagonal.")
     else:
+        n_total = n_children + 1
         # Original behavior: Task-level correlation matrix R and its Cholesky LR
         R = np.full((n_total, n_total), corr_children)
         R[0, 1:] = R[1:, 0] = corr_parent
@@ -301,9 +303,9 @@ def build_corr_matrix_option1():
     A = parent (index 0)
     B, C, D = children (indices 1, 2, 3)
     """
-    corr_AB = 0.0   # r(A,B)
-    corr_AC = -0.6  # r(A,C)
-    corr_AD = 0.6   # r(A,D)
+    corr_AB = 0.6   # r(A,B)
+    corr_AC = 0.0  # r(A,C)
+    corr_AD = -0.6   # r(A,D)
 
     corr_BC = 0.0   # r(B,C)
     corr_BD = 0.0   # r(B,D)
