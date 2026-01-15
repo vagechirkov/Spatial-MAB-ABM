@@ -3,7 +3,7 @@ from mesa.discrete_space import CellAgent
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, Kernel
 
-from rho_update import RhoKalmanUpdater, TrustRWUpdater
+from rho_update import RhoKalmanUpdater
 from utils import ICMKernel, LMCKernel, _stack_targets, _stack_tasks
 
 
@@ -261,7 +261,6 @@ class SocialGPAgent(CellAgent):
         rho: float,
         rho_update_rule: str | None = None,
         rho_update_basis: str = "private",
-        rho_update_eta: float = 0.1,
         rho_update_sigma_zeta: float = 1e-4,
         rho_update_rho_max: float = 1.0,
         rho_update_init: float = 0.0,
@@ -291,7 +290,6 @@ class SocialGPAgent(CellAgent):
         self.rho = np.array(rho).flatten()
         self.rho_update_rule = rho_update_rule
         self.rho_update_basis = rho_update_basis
-        self.rho_update_eta = rho_update_eta
         self.rho_update_sigma_zeta = rho_update_sigma_zeta
         self.rho_update_rho_max = rho_update_rho_max
         self.rho_update_init = rho_update_init
@@ -418,6 +416,11 @@ class SocialGPAgent(CellAgent):
         return X_soc, y_soc, neighbor_ids
 
     def _init_rho_updater(self, neighbor_ids: list[int]) -> None:
+        """
+        Initialize the trust learning updater with adaptive (Kalman-like) learning rate.
+
+        \alpha_t^j = v(x_t^j) / (v(x_t^j) + \sigma^2_\epsilon + \sigma^2_\zeta)
+        """
         if self._rho_updater is not None:
             return
         if self.rho_update_rule is None:
@@ -432,15 +435,8 @@ class SocialGPAgent(CellAgent):
                 sigma_zeta=self.rho_update_sigma_zeta,
                 observation_noise=self.observation_noise_social,
             )
-        elif self.rho_update_rule == "trust_rw":
-            self._rho_updater = TrustRWUpdater(
-                rho_init=self.rho_update_init,
-                rho_max=self.rho_update_rho_max,
-                sigma_zeta=self.rho_update_sigma_zeta,
-                eta=self.rho_update_eta,
-            )
         else:
-            raise ValueError(f"Unknown rho_update_rule '{self.rho_update_rule}'")
+            raise ValueError(f"Unknown rho_update_rule '{self.rho_update_rule}'. Only 'rho_kalman' is supported.")
 
         self._rho_updater.ensure_neighbors(neighbor_ids)
 
@@ -510,6 +506,19 @@ class SocialGPAgent(CellAgent):
         y_soc: list[np.ndarray],
         neighbor_ids: list[int],
     ) -> None:
+        """
+        Update trust (\hat{\rho}^j) for each neighbor based on new social observations.
+
+        Trust learning process (from manuscript):
+        1. For each new observation (x_t^j, r_t^j) from neighbor j:
+           a. Predict m(x_t^j) using current GP (either private-only or full ICM)
+           b. Compute correlation evidence: z_t^j = \tilde{m}(x_t^j) · \tilde{r}_t^j
+           c. Update trust: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
+
+        Two prediction bases (rho_update_basis):
+        - "private": Use only agent's private GP for predictions m(x_t^j)
+        - "full": Use full SG-ICM with current \hat{\rho} estimates
+        """
         if not neighbor_ids:
             return
 
@@ -517,6 +526,7 @@ class SocialGPAgent(CellAgent):
         if self._rho_updater is None:
             return
 
+        # Identify new observations from each neighbor since last update
         new_points = []
         new_rewards = []
         update_neighbor_ids = []
@@ -527,9 +537,11 @@ class SocialGPAgent(CellAgent):
             start = self._social_obs_index.get(neighbor_id, 0)
             total = len(X_soc[idx])
 
+            # Store observations seen before (for "full" prediction basis)
             X_soc_prefix.append(X_soc[idx][:start])
             y_soc_prefix.append(y_soc[idx][:start])
 
+            # Collect new observations since last update
             if start < total:
                 coords = X_soc[idx][start:total]
                 rewards = y_soc[idx][start:total].reshape(-1)
@@ -545,9 +557,12 @@ class SocialGPAgent(CellAgent):
 
         X_query = np.vstack(new_points)
 
+        # Generate predictions m(x_t^j) for computing correlation evidence z_t^j
         if self.rho_update_basis == "private":
+            # Predict using only private GP (ignores social info)
             mean_pred, var_pred = self._predict_update_private(X_query, X_priv, y_priv)
         elif self.rho_update_basis == "full":
+            # Predict using full SG-ICM with current \hat{\rho} estimates
             rho_vec = self._get_rho_vector(neighbor_ids)
             mean_pred, var_pred = self._predict_update_icm(
                 X_query, X_priv, y_priv, X_soc_prefix, y_soc_prefix, rho_vec
@@ -555,6 +570,7 @@ class SocialGPAgent(CellAgent):
         else:
             raise ValueError(f"Unknown rho_update_basis '{self.rho_update_basis}'")
 
+        # Split predictions back to per-neighbor lists
         mean_list, var_list, reward_list = [], [], []
         offset = 0
         for count, rewards in zip(update_counts, new_rewards):
@@ -563,6 +579,7 @@ class SocialGPAgent(CellAgent):
             reward_list.append(rewards)
             offset += count
 
+        # Perform trust learning update: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
         self._rho_updater.update(update_neighbor_ids, mean_list, var_list, reward_list)
 
     def _add_noise_to_reward(self, reward: float):
@@ -586,7 +603,10 @@ class SocialGPAgent(CellAgent):
         if self.model_type in ["SG-ICM", "SG-LCM"]:
             X_soc, y_soc, neighbor_ids = self._gather_social_info()
             if self.model_type == "SG-ICM":
+                # Update trust estimates \hat{\rho}^j based on new social observations
+                # This implements: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
                 self._update_rho(X_priv, y_priv, X_soc, y_soc, neighbor_ids)
+                # Retrieve current trust estimates for use in ICM kernel
                 rho_vec = self._get_rho_vector(neighbor_ids)
             else:
                 rho_vec = self.rho
