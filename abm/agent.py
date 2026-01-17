@@ -57,7 +57,7 @@ def social_generalization(
     X_predict: np.ndarray,
     length_scale: float,
     observation_noise_private: float,
-    observation_noise_social: float,
+    observation_noise_social: float | list,
     beta: float,
     tau: float,
     random_state,
@@ -67,13 +67,22 @@ def social_generalization(
     assert len(X_obs_private) > 0
     assert len(X_obs_social) > 0
 
-    observation_noise = np.hstack(
-        [np.ones(len(y_obs_private)) * observation_noise_private]
-        + [
-            np.ones(len(y_soc)) * observation_noise_social + observation_noise_private
-            for y_soc in y_obs_social
-        ]
-    )
+    if not isinstance(observation_noise_social, float):
+        observation_noise = np.hstack(
+            [np.ones(len(y_obs_private)) * observation_noise_private]
+            + [
+                np.ones(len(y_soc)) * observation_noise_social[i] + observation_noise_private
+                for i, y_soc in enumerate(y_obs_social)
+            ]
+        )
+    else:
+        observation_noise = np.hstack(
+            [np.ones(len(y_obs_private)) * observation_noise_private]
+            + [
+                np.ones(len(y_soc)) * observation_noise_social + observation_noise_private
+                for y_soc in y_obs_social
+            ]
+        )
     X_obs = np.vstack([X_obs_private] + X_obs_social)
     y_obs = np.vstack([y_obs_private] + y_obs_social)
 
@@ -254,7 +263,7 @@ class SocialGPAgent(CellAgent):
         length_scale_private: float,
         length_scale_social: float,
         observation_noise_private: float,
-        observation_noise_social: float,
+        observation_noise_social: float | list ,
         beta_private: float,
         beta_social: float,
         tau: float,
@@ -281,7 +290,7 @@ class SocialGPAgent(CellAgent):
         self.length_scale_social = length_scale_social
 
         self.observation_noise_private = observation_noise_private
-        self.observation_noise_social = observation_noise_social
+        self.observation_noise_social = np.array(observation_noise_social).flatten()
 
         self.beta_private = beta_private
         self.beta_social = beta_social

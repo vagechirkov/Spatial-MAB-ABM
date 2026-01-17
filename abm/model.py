@@ -76,7 +76,7 @@ class SocialGPModel(mesa.Model):
         length_scale_social: float | None = 2.0,
         length_scale_is_identical: bool = True,
         observation_noise_private: float | None = 0.1,
-        observation_noise_social: float | None = 0.1,
+        observation_noise_social: float | list = 0.1,
         rho: float | np.ndarray = 0.60,
         rho_update_rule: str | None = None,
         rho_update_basis: str = "private",
@@ -108,6 +108,14 @@ class SocialGPModel(mesa.Model):
 
         # check the model types
         assert model_type in ["SG", "SG-ICM", "AS"]
+
+        # check that social observation noise is a list only if model is SG
+        if not isinstance(observation_noise_social, float):
+            observation_noise_social = list(observation_noise_social)
+            assert len(observation_noise_social) == self.num_agents - 1, print(observation_noise_social, n-1)
+            assert model_type == "SG", print(observation_noise_social, model_type)
+            # to pass in SocialGPAgent.create_agents
+            observation_noise_social = [observation_noise_social]
 
         # sample parameters from priors (matching Witt et al. repo)
         if tau_sampling:
