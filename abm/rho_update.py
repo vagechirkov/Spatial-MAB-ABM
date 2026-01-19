@@ -4,7 +4,7 @@ import numpy as np
 
 
 class RunningStats:
-    """
+    r"""
     Online mean/variance via Welford's algorithm.
 
     Used to compute running estimates of mean and variance for standardization:
@@ -22,7 +22,7 @@ class RunningStats:
 
     @property
     def var(self):
-        """Returns sample variance v(·) = \frac{1}{t-1}\sum_k^t (x_k - \bar{x})^2"""
+        r"""Returns sample variance v(·) = \frac{1}{t-1}\sum_k^t (x_k - \bar{x})^2"""
         if self.count < 2:
             return 0.0
         return self._m2 / (self.count - 1)
@@ -37,7 +37,7 @@ class RunningStats:
 
 
 class BaseRhoUpdater:
-    """
+    r"""
     Base class for learning trust (rho) via trial-by-trial updates.
 
     Implements the core trust learning mechanism from the manuscript:
@@ -81,7 +81,7 @@ class BaseRhoUpdater:
         return self._project_rho_vector(rho_vec)
 
     def _standardize(self, value: float, stats: RunningStats) -> float:
-        """
+        r"""
         Standardize a value to zero mean and unit variance.
 
         Implements the standardization equations from the manuscript:
@@ -132,7 +132,7 @@ class BaseRhoUpdater:
 
 
 class RhoKalmanUpdater(BaseRhoUpdater):
-    """
+    r"""
     Trust learning with adaptive (Kalman-like) learning rate.
 
     Implements the main trust learning model from the manuscript:
@@ -152,9 +152,14 @@ class RhoKalmanUpdater(BaseRhoUpdater):
         rho_max: float,
         sigma_zeta: float,
         observation_noise: float,
+        learning_rate_type: str = "kalman",  # "kalman", "fixed", "dampened"
+        learning_rate_value: float = 0.1,  # Used for "fixed" or dampening factor
     ):
         super().__init__(rho_init=rho_init, rho_max=rho_max, sigma_zeta=sigma_zeta)
         self.observation_noise = float(observation_noise)  # \sigma^2_\epsilon
+        self.learning_rate_type = learning_rate_type
+        self.learning_rate_value = float(learning_rate_value)
+        self._last_update_info = {}  # For tracking internal variables
 
     def update(
         self,
@@ -163,7 +168,7 @@ class RhoKalmanUpdater(BaseRhoUpdater):
         var_list: list[np.ndarray],
         reward_list: list[np.ndarray],
     ) -> None:
-        """
+        r"""
         Update rho estimates for each neighbor based on new observations.
 
         For each new observation from neighbor j at location x_t^j:
@@ -173,6 +178,7 @@ class RhoKalmanUpdater(BaseRhoUpdater):
         4. Update running statistics for future standardization
         """
         self.ensure_neighbors(neighbor_ids)
+        self._last_update_info = {}  # Clear previous tracking info
 
         for neighbor_id, means, vars_, rewards in zip(
             neighbor_ids, mean_list, var_list, reward_list
@@ -182,12 +188,37 @@ class RhoKalmanUpdater(BaseRhoUpdater):
             rho = self.rho_by_id[neighbor_id]
 
             for mean_pred, var_pred, reward_obs in zip(means, vars_, rewards):
+                # Compute standardized values
+                m_tilde = self._standardize(mean_pred, stats_m)
+                r_tilde = self._standardize(reward_obs, stats_r)
+
                 # Compute correlation evidence z_t^j
                 z = self._compute_z(mean_pred, reward_obs, stats_m, stats_r)
 
-                # Compute adaptive learning rate: \alpha_t^j = v(x) / (v(x) + \sigma^2_\epsilon + \sigma^2_\zeta)
-                denom = var_pred + self.observation_noise + self.sigma_zeta
-                alpha = var_pred / denom if denom > 0.0 else 0.0
+                # Compute learning rate based on type
+                if self.learning_rate_type == "fixed":
+                    # Fixed learning rate
+                    alpha = self.learning_rate_value
+                elif self.learning_rate_type == "dampened":
+                    # Dampened Kalman: multiply by dampening factor
+                    denom = var_pred + self.observation_noise + self.sigma_zeta
+                    alpha_kalman = var_pred / denom if denom > 0.0 else 0.0
+                    alpha = alpha_kalman * self.learning_rate_value
+                else:  # "kalman" (default)
+                    # Adaptive learning rate: \alpha_t^j = v(x) / (v(x) + \sigma^2_\epsilon + \sigma^2_\zeta)
+                    denom = var_pred + self.observation_noise + self.sigma_zeta
+                    alpha = var_pred / denom if denom > 0.0 else 0.0
+
+                # Store tracking info (last observation for this neighbor)
+                self._last_update_info[neighbor_id] = {
+                    'z_t': float(z),
+                    'm_pred': float(mean_pred),
+                    'v_pred': float(var_pred),
+                    'r_obs': float(reward_obs),
+                    'alpha': float(alpha),
+                    'm_tilde': float(m_tilde),
+                    'r_tilde': float(r_tilde),
+                }
 
                 # Update trust: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
                 rho = rho + alpha * (z - rho)
