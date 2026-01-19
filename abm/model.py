@@ -75,14 +75,15 @@ class SocialGPModel(mesa.Model):
         length_scale_private: float | None = 2.0,
         length_scale_social: float | None = 2.0,
         length_scale_is_identical: bool = True,
-        observation_noise_private: float | None = 0.1,
-        observation_noise_social: float | list = 0.1,
+        observation_noise_private: float | None = 0.0001,  # variance (reward_noise_sd^2 = 0.01^2)
+        observation_noise_social: float | list = 0.0001,  # variance
         rho: float | np.ndarray = 0.60,
         rho_update_rule: str | None = None,
         rho_update_basis: str = "private",
         rho_update_sigma_zeta: float = 1e-4,
         rho_update_rho_max: float = 1.0,
         rho_update_init: float = 0.0,
+        rho_update_kwargs: dict | None = None,
         beta_private: float | None = 0.7,
         beta_social: float | None = 0.7,
         tau: float = 1.0,
@@ -222,6 +223,7 @@ class SocialGPModel(mesa.Model):
             rho_update_sigma_zeta=rho_update_sigma_zeta,
             rho_update_rho_max=rho_update_rho_max,
             rho_update_init=rho_update_init,
+            rho_update_kwargs=rho_update_kwargs,
         )
 
         self.datacollector = DataCollector(

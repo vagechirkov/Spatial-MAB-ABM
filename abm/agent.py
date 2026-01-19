@@ -273,6 +273,7 @@ class SocialGPAgent(CellAgent):
         rho_update_sigma_zeta: float = 1e-4,
         rho_update_rho_max: float = 1.0,
         rho_update_init: float = 0.0,
+        rho_update_kwargs: dict | None = None,
     ):
         super().__init__(model)
 
@@ -302,6 +303,7 @@ class SocialGPAgent(CellAgent):
         self.rho_update_sigma_zeta = rho_update_sigma_zeta
         self.rho_update_rho_max = rho_update_rho_max
         self.rho_update_init = rho_update_init
+        self.rho_update_kwargs = rho_update_kwargs or {}
 
         self._rho_updater = None
         self._social_obs_index: dict[int, int] = {}
@@ -425,7 +427,7 @@ class SocialGPAgent(CellAgent):
         return X_soc, y_soc, neighbor_ids
 
     def _init_rho_updater(self, neighbor_ids: list[int]) -> None:
-        """
+        r"""
         Initialize the trust learning updater with adaptive (Kalman-like) learning rate.
 
         \alpha_t^j = v(x_t^j) / (v(x_t^j) + \sigma^2_\epsilon + \sigma^2_\zeta)
@@ -443,6 +445,7 @@ class SocialGPAgent(CellAgent):
                 rho_max=self.rho_update_rho_max,
                 sigma_zeta=self.rho_update_sigma_zeta,
                 observation_noise=self.observation_noise_social,
+                **self.rho_update_kwargs,
             )
         else:
             raise ValueError(f"Unknown rho_update_rule '{self.rho_update_rule}'. Only 'rho_kalman' is supported.")
@@ -515,7 +518,7 @@ class SocialGPAgent(CellAgent):
         y_soc: list[np.ndarray],
         neighbor_ids: list[int],
     ) -> None:
-        """
+        r"""
         Update trust (\hat{\rho}^j) for each neighbor based on new social observations.
 
         Trust learning process (from manuscript):
