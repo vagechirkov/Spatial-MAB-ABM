@@ -503,6 +503,7 @@ class SocialGPAgent(CellAgent):
         X_soc_prefix: list[np.ndarray],
         y_soc_prefix: list[np.ndarray],
         rho_vec: np.ndarray,
+        query_id: int = 0,
     ) -> tuple[np.ndarray, np.ndarray]:
         if len(X_priv) < 1:
             return np.zeros(len(X_query)), np.zeros(len(X_query))
@@ -518,6 +519,8 @@ class SocialGPAgent(CellAgent):
             ]
         )
 
+        # Query predictions for the agent with the "query_id"
+        # X_star_priv = np.hstack([X_query, np.ones((len(X_query), 1)) * query_id])
         X_star_priv = np.hstack([X_query, np.zeros((len(X_query), 1))])
         gp_mean, gp_std = gp_base_generalization(
             X_all,
@@ -666,9 +669,9 @@ class SocialGPAgent(CellAgent):
                     # else:
                     #     pass
                     # r_est = np.corrcoef(self.means_list[0], self.means_list[i])[0, 1]
-                    r_est = np.corrcoef(np.divide(means_list[0], std_list[0] + 1e-7),
-                                        np.divide(means_list[i], std_list[i] + 1e-7))[0, 1]
-                    self.rho[i] = self.rho[i] + 0.1 * (r_est - self.rho[i])
+                    r_est = np.corrcoef(np.divide(means_list[0], std_list[0] + 1e-3),
+                                        np.divide(means_list[i], std_list[i] + 1e-3))[0, 1]
+                    self.rho[i] = self.rho[i] + 0.2 * (r_est - self.rho[i])
                     # self.rho[i] = np.clip(self.rho[i], -0.6, 0.6)
                     self.rho[i] = min(self.rho[i], 0.6)
                     self.rho[i] = max(self.rho[i], -0.6)
