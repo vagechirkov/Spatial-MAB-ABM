@@ -29,27 +29,26 @@ class RunningStats:
 # class RunningStats:
 #     r"""
 #     Online mean/variance via Welford's algorithm.
-#
+
 #     Used to compute running estimates of mean and variance for standardization:
 #     - \bar{m}^i_{1:t} and v(m_{1:t}^j) for predicted means
 #     - \bar{r}^j_{1:t} and v(r_{1:t}^j) for observed rewards
-#
-#     As mentioned in the manuscript:
-#     "which can be computed using Welford's algorithm v(r)_t = \frac{1}{t-1}\sum_k^t (r_k - \bar{r})^2"
+
+#     As mentioned in the manuscript: "Welford's algorithm v(r)_t = \frac{1}{t-1}\sum_k^t (r_k - \bar{r})^2"
 #     """
-#
+
 #     def __init__(self):
 #         self.count = 0
 #         self.mean = 0.0  # Running mean: \bar{m} or \bar{r}
 #         self._m2 = 0.0   # Running sum of squared differences
-#
+
 #     @property
 #     def var(self):
 #         r"""Returns sample variance v(·) = \frac{1}{t-1}\sum_k^t (x_k - \bar{x})^2"""
 #         if self.count < 2:
 #             return 0.0
 #         return self._m2 / (self.count - 1)
-#
+
 #     def update(self, value: float) -> None:
 #         """Update running statistics with new observation"""
 #         self.count += 1
@@ -237,14 +236,16 @@ class RhoKalmanUpdater(BaseRhoUpdater):
                     denom = var_pred + self.observation_noise + self.sigma_zeta
                     alpha_kalman = var_pred / denom if denom > 0.0 else 0.0
                     alpha = alpha_kalman * self.learning_rate_value
-                else:  # "kalman" (default)
-                    # Adaptive learning rate: \alpha_t^j = v(x) / (v(x) + \sigma^2_\epsilon + \sigma^2_\zeta)
+                elif self.learning_rate_type == "kalman_standard":
+                    # Standard Kalman: α ∝ v_pred (learn more when uncertain)
+                    # This is the ORIGINAL formula from the manuscript
                     denom = var_pred + self.observation_noise + self.sigma_zeta
-                    # alpha = var_pred / denom if denom > 0.0 else 0.0
+                    alpha = var_pred / denom if denom > 0.0 else 0.0
+                else:  # "kalman" (default, currently inverted)
+                    # Inverted Kalman: α ∝ 1/v_pred (learn more when confident)
+                    # This is the CURRENT implementation
+                    denom = var_pred + self.observation_noise + self.sigma_zeta
                     alpha = (self.observation_noise + self.sigma_zeta) / denom if denom > 0.0 else 0.0
-
-                    # denom = var_pred + self.learning_rate_value + self.sigma_zeta
-                    # alpha = self.learning_rate_value / denom if denom > 0.0 else 0.0
 
                 alpha = min(alpha, 0.5)
 
