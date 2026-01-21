@@ -656,7 +656,7 @@ class SocialGPAgent(CellAgent):
             )
             # self.means_list = means_list
             # self.vars_list = vars_list
-            if (self.model.steps > 2) and (self.rho_update_rule == "rho_kalman"):
+            if self.rho_update_rule == "rho_kalman":
                 for i, x_soc in enumerate(X_soc, start=1):
                     # soc_mean_inx = self.meshgrid_dict[tuple(x_soc[-1])]
                     # soc_obs = y_soc[i-1][-1]
