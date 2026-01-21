@@ -33,6 +33,7 @@ Install dependencies (if the project already exists)
 
 ```bash
 poetry install
+eval $(poetry env activate)
 ```
 
 Run Jupyter Lab

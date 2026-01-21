@@ -4,7 +4,7 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, Kernel
 
 from rho_update import RhoKalmanUpdater
-from utils import ICMKernel, LMCKernel, _stack_targets, _stack_tasks
+from utils import ICMKernel, LMCKernel, _stack_targets, _stack_tasks, robust_weighted_correlation
 
 
 def gp_base_generalization(
@@ -637,8 +637,10 @@ class SocialGPAgent(CellAgent):
         y_priv = np.array(self.y_observations).reshape(-1, 1)
 
         if self.model_type in ["SG-ICM", "SG-LCM"]:
-            X_soc, y_soc, neighbor_ids = self._gather_social_info()
             if self.rho_update_rule == "rho_kalman":
+                raise NotImplementedError
+            elif self.rho_update_rule == "full_belief_corr":
+                X_soc, y_soc, neighbor_ids = self._gather_social_info()
                 # My independent belief
                 my_mean, my_std = gp_base_generalization(
                     X_priv, y_priv, self.meshgrid_flatten,
@@ -656,29 +658,67 @@ class SocialGPAgent(CellAgent):
                         self.model.rng.__getstate__()
                     )
 
-                    # 2. Correlate the signal-to-noise maps
-                    # (add epsilon to std to avoid division by zero in empty areas)
-                    my_signal = np.divide(my_mean, my_std + 1e-3)
-                    neighbor_signal = np.divide(neighbor_mean, neighbor_std + 1e-3)
+                    # # 2. Correlate the signal-to-noise maps
+                    # # (add epsilon to std to avoid division by zero in empty areas)
+                    # my_signal = np.divide(my_mean, my_std + 1e-6)
+                    # neighbor_signal = np.divide(neighbor_mean, neighbor_std + 1e-6)
+                    #
+                    # r_est = np.corrcoef(my_signal, neighbor_signal)[0, 1]
 
-                    r_est = np.corrcoef(my_signal, neighbor_signal)[0, 1]
+                    r_est = robust_weighted_correlation(my_mean, neighbor_mean, my_std, neighbor_std)
 
-                    # Handle NaN correlations (if maps are empty/flat)
+                    if np.isnan(r_est):
+                        r_est = 0.0
+                    self.rho[i] = self.rho[i] + self.rho_lr * (r_est - self.rho[i])
+                    self.rho[i] = np.clip(self.rho[i], -0.3, 0.3)
+            elif self.rho_update_rule == "landmarks_corr":
+                X_soc, y_soc, neighbor_ids = self._gather_social_info()
+                for i, (_x_soc, _y_soc) in enumerate(zip(X_soc, y_soc), start=1):
+                    # Stack unique coordinates from both agents
+                    X_landmarks = _x_soc
+
+                    # Compare beliefs ONLY at these landmarks
+                    # My belief at landmarks
+                    my_mean, my_std = gp_base_generalization(
+                        X_priv, y_priv, X_landmarks,
+                        RBF(length_scale=self.length_scale_private),
+                        self.observation_noise_private,
+                        self.model.rng.__getstate__()
+                    )
+
+                    # Neighbor's belief at landmarks
+                    neighbor_mean, neighbor_std = gp_base_generalization(
+                        _x_soc, _y_soc, X_landmarks,
+                        RBF(length_scale=self.length_scale_social),
+                        self.observation_noise_social,
+                        self.model.rng.__getstate__()
+                    )
+
+                    # Robust Weighted Correlation
+                    # We weight the correlation by how "known" the area is.
+                    # If both variances are high (unknown territory), weight is low.
+                    r_est = robust_weighted_correlation(
+                        my_mean, neighbor_mean,
+                        my_std, neighbor_std
+                    )
+
                     if np.isnan(r_est):
                         r_est = 0.0
 
-                    # 3. Update Rho
-                    self.rho[i] = self.rho[i] + self.rho_lr * (r_est - self.rho[i])
-                    self.rho[i] = np.clip(self.rho[i], -0.6, 0.6)
+                    self.rho[i] =  self.rho[i] + self.rho_lr * (r_est - self.rho[i])
 
-            if self.model_type == "SG-ICM":
-                # Update trust estimates \hat{\rho}^j based on new social observations
-                # This implements: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
-                # self._update_rho(X_priv, y_priv, X_soc, y_soc, neighbor_ids)
-                # Retrieve current trust estimates for use in ICM kernel
-                rho_vec = self._get_rho_vector(neighbor_ids)
-            else:
-                rho_vec = self.rho
+                    # Clip to prevent numerical instability
+                    self.rho[i] = np.clip(self.rho[i], -0.5, 0.5)
+
+            # if self.model_type == "SG-ICM":
+            #     # Update trust estimates \hat{\rho}^j based on new social observations
+            #     # This implements: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
+            #     # self._update_rho(X_priv, y_priv, X_soc, y_soc, neighbor_ids)
+            #     # Retrieve current trust estimates for use in ICM kernel
+            #     rho_vec = self._get_rho_vector(neighbor_ids)
+            # else:
+            #     rho_vec = self.rho
+
             X_soc, y_soc, neighbor_ids = self._gather_social_info()
             logits = social_generalization_icm(
                 X_priv,
@@ -698,7 +738,6 @@ class SocialGPAgent(CellAgent):
                 subtract_max_value=True
             )
         elif "SG" in self.model_type:
-
             X_soc, y_soc, _ = self._gather_social_info()
             logits = social_generalization(
                 X_priv,
