@@ -636,54 +636,48 @@ class SocialGPAgent(CellAgent):
 
         if self.model_type in ["SG-ICM", "SG-LCM"]:
             X_soc, y_soc, neighbor_ids = self._gather_social_info()
-            means_list, std_list = social_generalization_icm(
-                X_priv,
-                y_priv,
-                X_soc,
-                y_soc,
-                self.meshgrid_flatten,
-                length_scale_private=self.length_scale_private,
-                length_scale_social=self.length_scale_social,
-                observation_noise_private=self.observation_noise_private,
-                observation_noise_social=self.observation_noise_social,
-                beta=self.beta_private,
-                rho=self.rho,
-                tau=self.tau,
-                random_state=self.model.rng.__getstate__(),
-                model=self.model_type.split("-")[1],
-                subtract_max_value=True,
-                return_full_predictions=True
-            )
-            # self.means_list = means_list
-            # self.vars_list = vars_list
             if self.rho_update_rule == "rho_kalman":
-                for i, x_soc in enumerate(X_soc, start=1):
-                    # soc_mean_inx = self.meshgrid_dict[tuple(x_soc[-1])]
-                    # soc_obs = y_soc[i-1][-1]
-                    # soc_mean_pred = self.means_list[i][soc_mean_inx]
-                    # sign_m = -np.sign(soc_obs - soc_mean_pred)
-                    # if sign_m > 0:
-                    #     self.rho[i] += 0.1
-                    # elif sign_m < 0:
-                    #     self.rho[i] -= 0.1
-                    # else:
-                    #     pass
-                    # r_est = np.corrcoef(self.means_list[0], self.means_list[i])[0, 1]
-                    r_est = np.corrcoef(np.divide(means_list[0], std_list[0] + 1e-3),
-                                        np.divide(means_list[i], std_list[i] + 1e-3))[0, 1]
+                # My independent belief
+                my_mean, my_std = gp_base_generalization(
+                    X_priv, y_priv, self.meshgrid_flatten,
+                    RBF(length_scale=self.length_scale_private),
+                    self.observation_noise_private,
+                    self.model.rng.__getstate__()
+                )
+
+                for i, (x_soc, y_soc) in enumerate(zip(X_soc, y_soc), start=1):
+                    # Neighbor's independent belief
+                    neighbor_mean, neighbor_std = gp_base_generalization(
+                        x_soc, y_soc, self.meshgrid_flatten,
+                        RBF(length_scale=self.length_scale_social),
+                        self.observation_noise_social,
+                        self.model.rng.__getstate__()
+                    )
+
+                    # 2. Correlate the signal-to-noise maps
+                    # (add epsilon to std to avoid division by zero in empty areas)
+                    my_signal = np.divide(my_mean, my_std + 1e-3)
+                    neighbor_signal = np.divide(neighbor_mean, neighbor_std + 1e-3)
+
+                    r_est = np.corrcoef(my_signal, neighbor_signal)[0, 1]
+
+                    # Handle NaN correlations (if maps are empty/flat)
+                    if np.isnan(r_est):
+                        r_est = 0.0
+
+                    # 3. Update Rho
                     self.rho[i] = self.rho[i] + 0.2 * (r_est - self.rho[i])
-                    # self.rho[i] = np.clip(self.rho[i], -0.6, 0.6)
-                    self.rho[i] = min(self.rho[i], 0.6)
-                    self.rho[i] = max(self.rho[i], -0.6)
+                    self.rho[i] = np.clip(self.rho[i], -0.6, 0.6)
 
             if self.model_type == "SG-ICM":
                 # Update trust estimates \hat{\rho}^j based on new social observations
                 # This implements: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
-                self._update_rho(X_priv, y_priv, X_soc, y_soc, neighbor_ids)
+                # self._update_rho(X_priv, y_priv, X_soc, y_soc, neighbor_ids)
                 # Retrieve current trust estimates for use in ICM kernel
                 rho_vec = self._get_rho_vector(neighbor_ids)
             else:
                 rho_vec = self.rho
+            X_soc, y_soc, neighbor_ids = self._gather_social_info()
             logits = social_generalization_icm(
                 X_priv,
                 y_priv,
