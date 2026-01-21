@@ -5,35 +5,58 @@ import numpy as np
 
 class RunningStats:
     r"""
-    Online mean/variance via Welford's algorithm.
-
-    Used to compute running estimates of mean and variance for standardization:
-    - \bar{m}^i_{1:t} and v(m_{1:t}^j) for predicted means
-    - \bar{r}^j_{1:t} and v(r_{1:t}^j) for observed rewards
-
-    As mentioned in the manuscript:
-    "which can be computed using Welford's algorithm v(r)_t = \frac{1}{t-1}\sum_k^t (r_k - \bar{r})^2"
+    Tracks the uncentered second moment E[X^2] for zero-mean processes.
+    Replaces RunningStats for environments where mean is known to be 0 (e.g. centered maps).
     """
 
     def __init__(self):
         self.count = 0
-        self.mean = 0.0  # Running mean: \bar{m} or \bar{r}
-        self._m2 = 0.0   # Running sum of squared differences
+        self.sum_sq = 0.0
 
     @property
     def var(self):
-        r"""Returns sample variance v(·) = \frac{1}{t-1}\sum_k^t (x_k - \bar{x})^2"""
-        if self.count < 2:
-            return 0.0
-        return self._m2 / (self.count - 1)
+        r"""Returns the average squared value E[X^2]."""
+        if self.count < 1:
+            return 1.0
+        return self.sum_sq / self.count
 
     def update(self, value: float) -> None:
-        """Update running statistics with new observation"""
+        """Update statistics with new observation."""
         self.count += 1
-        delta = value - self.mean
-        self.mean += delta / self.count
-        delta2 = value - self.mean
-        self._m2 += delta * delta2
+        self.sum_sq += value ** 2
+
+
+# class RunningStats:
+#     r"""
+#     Online mean/variance via Welford's algorithm.
+#
+#     Used to compute running estimates of mean and variance for standardization:
+#     - \bar{m}^i_{1:t} and v(m_{1:t}^j) for predicted means
+#     - \bar{r}^j_{1:t} and v(r_{1:t}^j) for observed rewards
+#
+#     As mentioned in the manuscript:
+#     "which can be computed using Welford's algorithm v(r)_t = \frac{1}{t-1}\sum_k^t (r_k - \bar{r})^2"
+#     """
+#
+#     def __init__(self):
+#         self.count = 0
+#         self.mean = 0.0  # Running mean: \bar{m} or \bar{r}
+#         self._m2 = 0.0   # Running sum of squared differences
+#
+#     @property
+#     def var(self):
+#         r"""Returns sample variance v(·) = \frac{1}{t-1}\sum_k^t (x_k - \bar{x})^2"""
+#         if self.count < 2:
+#             return 0.0
+#         return self._m2 / (self.count - 1)
+#
+#     def update(self, value: float) -> None:
+#         """Update running statistics with new observation"""
+#         self.count += 1
+#         delta = value - self.mean
+#         self.mean += delta / self.count
+#         delta2 = value - self.mean
+#         self._m2 += delta * delta2
 
 
 class BaseRhoUpdater:
@@ -90,12 +113,16 @@ class BaseRhoUpdater:
 
         Returns 0 if insufficient data or numerical issues.
         """
-        if stats.count < 2:
+        # if stats.count < 2:
+        #     return 0.0
+        # The +0.3 is a "softener" to prevent huge z-values on small data
+        denom = math.sqrt(stats.var + self.sigma_zeta + 0.1)
+        # if (not math.isfinite(denom)) or denom <= 0.0:
+        #     return 0.0
+        if denom <= 1e-9:
             return 0.0
-        denom = math.sqrt(stats.var + self.sigma_zeta)
-        if (not math.isfinite(denom)) or denom <= 0.0:
-            return 0.0
-        return (value - stats.mean) / denom
+        # return (value - stats.mean) / denom
+        return value / denom
 
     def _compute_z(
         self, mean_pred: float, reward_obs: float, stats_m: RunningStats, stats_r: RunningStats
@@ -119,7 +146,8 @@ class BaseRhoUpdater:
         z = m_tilde * r_tilde
         if not math.isfinite(z):
             return 0.0
-        return float(np.clip(z, -1.0, 1.0))
+        # return float(np.clip(z, -1.0, 1.0))
+        return math.tanh(z)
 
     def update(
         self,
@@ -188,12 +216,17 @@ class RhoKalmanUpdater(BaseRhoUpdater):
             rho = self.rho_by_id[neighbor_id]
 
             for mean_pred, var_pred, reward_obs in zip(means, vars_, rewards):
-                # Compute standardized values
-                m_tilde = self._standardize(mean_pred, stats_m)
-                r_tilde = self._standardize(reward_obs, stats_r)
+
+                # Update running statistics for next trial's standardization
+                stats_m.update(float(mean_pred))
+                stats_r.update(float(reward_obs))
 
                 # Compute correlation evidence z_t^j
                 z = self._compute_z(mean_pred, reward_obs, stats_m, stats_r)
+
+                # Compute standardized values
+                m_tilde = self._standardize(mean_pred, stats_m)
+                r_tilde = self._standardize(reward_obs, stats_r)
 
                 # Compute learning rate based on type
                 if self.learning_rate_type == "fixed":
@@ -207,7 +240,13 @@ class RhoKalmanUpdater(BaseRhoUpdater):
                 else:  # "kalman" (default)
                     # Adaptive learning rate: \alpha_t^j = v(x) / (v(x) + \sigma^2_\epsilon + \sigma^2_\zeta)
                     denom = var_pred + self.observation_noise + self.sigma_zeta
-                    alpha = var_pred / denom if denom > 0.0 else 0.0
+                    # alpha = var_pred / denom if denom > 0.0 else 0.0
+                    alpha = (self.observation_noise + self.sigma_zeta) / denom if denom > 0.0 else 0.0
+
+                    # denom = var_pred + self.learning_rate_value + self.sigma_zeta
+                    # alpha = self.learning_rate_value / denom if denom > 0.0 else 0.0
+
+                alpha = min(alpha, 0.5)
 
                 # Store tracking info (last observation for this neighbor)
                 self._last_update_info[neighbor_id] = {
@@ -219,13 +258,14 @@ class RhoKalmanUpdater(BaseRhoUpdater):
                     'm_tilde': float(m_tilde),
                     'r_tilde': float(r_tilde),
                 }
+                # Update Trust with "Pseudo-Momentum"
+                delta = alpha * (z - rho)
+                # Even if alpha is high, prevent rho from changing by more than 0.1 per step.
+                max_step = 0.2
+                delta = np.clip(delta, -max_step, max_step)
 
                 # Update trust: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
-                rho = rho + alpha * (z - rho)
+                rho = rho + delta
                 rho = float(np.clip(rho, -self.rho_max, self.rho_max))
-
-                # Update running statistics for next trial's standardization
-                stats_m.update(float(mean_pred))
-                stats_r.update(float(reward_obs))
 
             self.rho_by_id[neighbor_id] = rho
