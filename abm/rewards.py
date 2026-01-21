@@ -357,7 +357,7 @@ def build_corr_matrix_option3():
     corr_AB = 0.0
     corr_AC = -0.6
     corr_AD = 0.6
-    
+
     # customize correlations for AS agnets
     corr_BC = 0.2
     corr_BD = -0.3
@@ -377,6 +377,57 @@ def build_corr_matrix_option3():
         )
 
     return R
+
+
+def generate_env(env_seed, rho, corr_matrix, grid_size=11, max_tries=10000, tol: float = 0.10):
+    """
+    Generate environments with target correlation (rho) between parent and child maps.
+
+    This function ensures:
+    1. All maps (parent and children) are normalized to the same scale [0, 1]
+    2. Correlation between maps matches the target rho within tolerance
+    3. A warning is issued if the desired correlation cannot be achieved
+    """
+    n_children = corr_matrix.shape[0] - 1
+    rng = np.random.default_rng(env_seed)
+    best_deviation = float('inf')
+    best_parent, best_child_maps = None, None
+
+    for attempt in range(max_tries):
+        parent, child_maps = make_parent_and_children_cholesky2(
+            rng=rng,
+            grid_size=grid_size,
+            n_children=n_children + 1,
+            length_scale=2.0,
+            corr_matrix=corr_matrix,
+        )
+        flats = [c.ravel() for c in [parent] + child_maps]
+        C = np.corrcoef(flats)
+
+        deviation = np.abs(C[0, :] - rho)
+        max_deviation = deviation.max()
+
+        # Keep track of the best attempt
+        if max_deviation < best_deviation:
+            best_deviation = max_deviation
+            best_parent = parent
+            best_child_maps = child_maps
+
+        ok = np.all(deviation <= tol)
+        if ok:
+            break
+
+    # Warn if we didn't meet the tolerance
+    if best_deviation > tol:
+        warnings.warn(
+            f"Could not generate environment with desired correlation within "
+            f"{max_tries} attempts (tol={tol:.3f}). Best max deviation: {best_deviation:.4f}."
+        )
+
+    parent_normalized = _min_max(best_parent)
+    child_maps_normalized = [_min_max(c) for c in best_child_maps]
+
+    return parent_normalized, child_maps_normalized
 
 
 if __name__ == "__main__":
