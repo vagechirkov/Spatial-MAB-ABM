@@ -295,7 +295,9 @@ if __name__ == "__main__":
         network_type="directed_one_to_four",
         corr_matrix=R,  # triggers the corr_matrix branch
         tau_sampling=True,
-        rho=R[0, :]
+        # rho=R[0, :],
+        rho=np.array([1.0, 0.0, 0.0, 0.0]),
+        rho_update_rule="rho_kalman",
     )
 
     # 3. original scalar-correlation behavior

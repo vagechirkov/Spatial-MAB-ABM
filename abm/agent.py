@@ -212,6 +212,7 @@ def social_generalization_icm(
     random_state,
     model="ICM",
     subtract_max_value=False,
+    return_full_predictions=False,
 ):
     X_all = _stack_tasks(X_obs_private, X_obs_social)
     Y_all = _stack_targets(y_obs_private, y_obs_social)
@@ -232,23 +233,41 @@ def social_generalization_icm(
         + [np.ones(len(y_soc)) * observation_noise_social for y_soc in y_obs_social]
     )
 
-    # make a prediction for private output channel only
-    X_star_priv = np.hstack([X_predict, np.zeros((len(X_predict), 1))])
-    gp_mean_p, gp_std_p = gp_base_generalization(
-        X_all,
-        Y_all.ravel(),
-        X_star_priv,
-        kernel,
-        observation_noise,
-        random_state,
-    )
+    if not return_full_predictions:
+        # make a prediction for private output channel only
+        X_star_priv = np.hstack([X_predict, np.zeros((len(X_predict), 1))])
+        gp_mean_p, gp_std_p = gp_base_generalization(
+            X_all,
+            Y_all.ravel(),
+            X_star_priv,
+            kernel,
+            observation_noise,
+            random_state,
+        )
 
-    ucb = gp_mean_p.reshape(-1, 1) + beta * gp_std_p.reshape(-1, 1)
-    if subtract_max_value:
-        ucb -= np.max(ucb)
-    logits = ucb / tau
-    logits = np.clip(logits, -40, 40)  # avoid overflow in exp
-    return np.exp(logits)
+        ucb = gp_mean_p.reshape(-1, 1) + beta * gp_std_p.reshape(-1, 1)
+        if subtract_max_value:
+            ucb -= np.max(ucb)
+        logits = ucb / tau
+        logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+        return np.exp(logits)
+    else:
+        mean_list = []
+        std_list = []
+        for i in range(len(X_obs_social) + 1):
+            # make a prediction for private output channel only
+            X_star_priv = np.hstack([X_predict, np.ones((len(X_predict), 1)) * i])
+            gp_mean_p, gp_std_p = gp_base_generalization(
+                X_all,
+                Y_all.ravel(),
+                X_star_priv,
+                kernel,
+                observation_noise,
+                random_state,
+            )
+            mean_list.append(gp_mean_p)
+            std_list.append(gp_std_p)
+        return mean_list, std_list
 
 
 class SocialGPAgent(CellAgent):
@@ -614,6 +633,46 @@ class SocialGPAgent(CellAgent):
 
         if self.model_type in ["SG-ICM", "SG-LCM"]:
             X_soc, y_soc, neighbor_ids = self._gather_social_info()
+            means_list, std_list = social_generalization_icm(
+                X_priv,
+                y_priv,
+                X_soc,
+                y_soc,
+                self.meshgrid_flatten,
+                length_scale_private=self.length_scale_private,
+                length_scale_social=self.length_scale_social,
+                observation_noise_private=self.observation_noise_private,
+                observation_noise_social=self.observation_noise_social,
+                beta=self.beta_private,
+                rho=self.rho,
+                tau=self.tau,
+                random_state=self.model.rng.__getstate__(),
+                model=self.model_type.split("-")[1],
+                subtract_max_value=True,
+                return_full_predictions=True
+            )
+            # self.means_list = means_list
+            # self.vars_list = vars_list
+            if (self.model.steps > 2) and (self.rho_update_rule == "rho_kalman"):
+                for i, x_soc in enumerate(X_soc, start=1):
+                    # soc_mean_inx = self.meshgrid_dict[tuple(x_soc[-1])]
+                    # soc_obs = y_soc[i-1][-1]
+                    # soc_mean_pred = self.means_list[i][soc_mean_inx]
+                    # sign_m = -np.sign(soc_obs - soc_mean_pred)
+                    # if sign_m > 0:
+                    #     self.rho[i] += 0.1
+                    # elif sign_m < 0:
+                    #     self.rho[i] -= 0.1
+                    # else:
+                    #     pass
+                    # r_est = np.corrcoef(self.means_list[0], self.means_list[i])[0, 1]
+                    r_est = np.corrcoef(np.divide(means_list[0], std_list[0] + 1e-7),
+                                        np.divide(means_list[i], std_list[i] + 1e-7))[0, 1]
+                    self.rho[i] = self.rho[i] + 0.1 * (r_est - self.rho[i])
+                    # self.rho[i] = np.clip(self.rho[i], -0.6, 0.6)
+                    self.rho[i] = min(self.rho[i], 0.6)
+                    self.rho[i] = max(self.rho[i], -0.6)
+
             if self.model_type == "SG-ICM":
                 # Update trust estimates \hat{\rho}^j based on new social observations
                 # This implements: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
@@ -633,7 +692,7 @@ class SocialGPAgent(CellAgent):
                 observation_noise_private=self.observation_noise_private,
                 observation_noise_social=self.observation_noise_social,
                 beta=self.beta_private,
-                rho=rho_vec,
+                rho=self.rho,
                 tau=self.tau,
                 random_state=self.model.rng.__getstate__(),
                 model=self.model_type.split("-")[1],
