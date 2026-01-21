@@ -323,6 +323,8 @@ class SocialGPAgent(CellAgent):
         self.rho_update_rho_max = rho_update_rho_max
         self.rho_update_init = rho_update_init
         self.rho_update_kwargs = rho_update_kwargs or {}
+        self.rho_lr = rho_update_kwargs['rho_lr'] if (rho_update_kwargs is not None) and (
+                    'rho_lr' in rho_update_kwargs.keys()) else 0.1
 
         self._rho_updater = None
         self._social_obs_index: dict[int, int] = {}
@@ -666,7 +668,7 @@ class SocialGPAgent(CellAgent):
                         r_est = 0.0
 
                     # 3. Update Rho
-                    self.rho[i] = self.rho[i] + 0.2 * (r_est - self.rho[i])
+                    self.rho[i] = self.rho[i] + self.rho_lr * (r_est - self.rho[i])
                     self.rho[i] = np.clip(self.rho[i], -0.6, 0.6)
 
             if self.model_type == "SG-ICM":
