@@ -430,29 +430,29 @@ def save_results(results, rho_histories, output_dir):
     rho_path = os.path.join(output_dir, 'rho_histories.npy')
     np.save(rho_path, rho_histories, allow_pickle=True)
 
-def generate_all_plots(results, rho_histories, conditions, update_conditions, rho_true, output_dir):
+def generate_all_plots(results, rho_histories, conditions, update_conditions, rho_true, output_dir, extension='png'):
     """Generate and save all plots."""
     os.makedirs(output_dir, exist_ok=True)
 
     # Reward plots
     plot_reward(results, y_col="reward",
-                output_path=os.path.join(output_dir, 'reward_over_time.png'))
+                output_path=os.path.join(output_dir, f'reward_over_time.{extension}'))
     plot_reward(results, y_col="cumulative_reward",
-                output_path=os.path.join(output_dir, 'cumulative_reward_over_time.png'))
+                output_path=os.path.join(output_dir, f'cumulative_reward_over_time.{extension}'))
 
     # Final cumulative reward
     plot_final_cumreward(results,
-                        output_path=os.path.join(output_dir, 'final_cumulative_reward.png'))
+                        output_path=os.path.join(output_dir, f'final_cumulative_reward.{extension}'))
 
     # Rho plots
     plot_rho_history(rho_histories, conditions, update_conditions, rho_true,
-                    output_path=os.path.join(output_dir, 'rho_estimates_over_time.png'))
+                    output_path=os.path.join(output_dir, f'rho_estimates_over_time.{extension}'))
     plot_rho_mae(rho_histories, conditions, update_conditions, rho_true,
-                output_path=os.path.join(output_dir, 'rho_mae_over_time.png'))
+                output_path=os.path.join(output_dir, f'rho_mae_over_time.{extension}'))
 
     # Exploration distance
     plot_exploration_distance(results,
-                             output_path=os.path.join(output_dir, 'exploration_distance.png'))
+                             output_path=os.path.join(output_dir, f'exploration_distance.{extension}'))
 
 
 def main():
@@ -500,7 +500,10 @@ def main():
 
     # Generate plots
     generate_all_plots(results, rho_histories, conditions, update_conditions,
-                      rho_true, args.output_dir)
+                      rho_true, args.output_dir, extension='png')
+    generate_all_plots(results, rho_histories, conditions, update_conditions,
+                       rho_true, args.output_dir, extension='svg')
+
 
 if __name__ == "__main__":
     main()
