@@ -16,15 +16,30 @@ def gp_base_generalization(
     rng,
 ):
     """Fit a zero-mean GP and return μ, σ on the prediction grid."""
-    gpr = GaussianProcessRegressor(
-        kernel=kernel,
-        alpha=observation_noise,
-        random_state=rng,
-        optimizer=None,
-        normalize_y=False,
-    )
-    gpr.fit(X_obs, y_obs)
-    return gpr.predict(X_predict, return_std=True)
+    try:
+        gpr = GaussianProcessRegressor(
+            kernel=kernel,
+            alpha=observation_noise,
+            random_state=rng,
+            optimizer=None,
+            normalize_y=False,
+        )
+        gpr.fit(X_obs, y_obs)
+        mu, sigma = gpr.predict(X_predict, return_std=True)
+
+        # Check for invalid values
+        if np.any(np.isnan(mu)) or np.any(np.isnan(sigma)) or np.any(sigma < 0):
+            raise ValueError("GP prediction returned invalid values")
+
+        return mu, sigma
+
+    except (np.linalg.LinAlgError, ValueError) as e:
+        # Degenerate covariance matrix or invalid predictions
+        # Return safe fallback: prior mean (0) with high uncertainty
+        print(f"Warning: GP fitting failed ({type(e).__name__}: {str(e)}). Using fallback predictions.")
+        mu = np.zeros(len(X_predict))
+        sigma = np.ones(len(X_predict)) * 0.5  # Return moderate uncertainty
+        return mu, sigma
 
 def asocial_generalization(
     X_obs: np.ndarray,
@@ -641,74 +656,90 @@ class SocialGPAgent(CellAgent):
                 raise NotImplementedError
             elif self.rho_update_rule == "full_belief_corr":
                 X_soc, y_soc, neighbor_ids = self._gather_social_info()
-                # My independent belief
-                my_mean, my_std = gp_base_generalization(
-                    X_priv, y_priv, self.meshgrid_flatten,
-                    RBF(length_scale=self.length_scale_private),
-                    self.observation_noise_private,
-                    self.model.rng.__getstate__()
-                )
-
-                for i, (x_soc, y_soc) in enumerate(zip(X_soc, y_soc), start=1):
-                    # Neighbor's independent belief
-                    neighbor_mean, neighbor_std = gp_base_generalization(
-                        x_soc, y_soc, self.meshgrid_flatten,
-                        RBF(length_scale=self.length_scale_social),
-                        self.observation_noise_social,
-                        self.model.rng.__getstate__()
-                    )
-
-                    # # 2. Correlate the signal-to-noise maps
-                    # # (add epsilon to std to avoid division by zero in empty areas)
-                    # my_signal = np.divide(my_mean, my_std + 1e-6)
-                    # neighbor_signal = np.divide(neighbor_mean, neighbor_std + 1e-6)
-                    #
-                    # r_est = np.corrcoef(my_signal, neighbor_signal)[0, 1]
-
-                    r_est = robust_weighted_correlation(my_mean, neighbor_mean, my_std, neighbor_std)
-
-                    if np.isnan(r_est):
-                        r_est = 0.0
-                    self.rho[i] = self.rho[i] + self.rho_lr * (r_est - self.rho[i])
-                    self.rho[i] = np.clip(self.rho[i], -0.3, 0.3)
-            elif self.rho_update_rule == "landmarks_corr":
-                X_soc, y_soc, neighbor_ids = self._gather_social_info()
-                for i, (_x_soc, _y_soc) in enumerate(zip(X_soc, y_soc), start=1):
-                    # Stack unique coordinates from both agents
-                    X_landmarks = _x_soc
-
-                    # Compare beliefs ONLY at these landmarks
-                    # My belief at landmarks
+                try:
+                    # My independent belief
                     my_mean, my_std = gp_base_generalization(
-                        X_priv, y_priv, X_landmarks,
+                        X_priv, y_priv, self.meshgrid_flatten,
                         RBF(length_scale=self.length_scale_private),
                         self.observation_noise_private,
                         self.model.rng.__getstate__()
                     )
 
-                    # Neighbor's belief at landmarks
-                    neighbor_mean, neighbor_std = gp_base_generalization(
-                        _x_soc, _y_soc, X_landmarks,
-                        RBF(length_scale=self.length_scale_social),
-                        self.observation_noise_social,
-                        self.model.rng.__getstate__()
-                    )
+                    for i, (x_soc, y_soc) in enumerate(zip(X_soc, y_soc), start=1):
+                        try:
+                            # Neighbor's independent belief
+                            neighbor_mean, neighbor_std = gp_base_generalization(
+                                x_soc, y_soc, self.meshgrid_flatten,
+                                RBF(length_scale=self.length_scale_social),
+                                self.observation_noise_social,
+                                self.model.rng.__getstate__()
+                            )
 
-                    # Robust Weighted Correlation
-                    # We weight the correlation by how "known" the area is.
-                    # If both variances are high (unknown territory), weight is low.
-                    r_est = robust_weighted_correlation(
-                        my_mean, neighbor_mean,
-                        my_std, neighbor_std
-                    )
+                            # # 2. Correlate the signal-to-noise maps
+                            # # (add epsilon to std to avoid division by zero in empty areas)
+                            # my_signal = np.divide(my_mean, my_std + 1e-6)
+                            # neighbor_signal = np.divide(neighbor_mean, neighbor_std + 1e-6)
+                            #
+                            # r_est = np.corrcoef(my_signal, neighbor_signal)[0, 1]
 
-                    if np.isnan(r_est):
-                        r_est = 0.0
+                            r_est = robust_weighted_correlation(my_mean, neighbor_mean, my_std, neighbor_std)
 
-                    self.rho[i] =  self.rho[i] + self.rho_lr * (r_est - self.rho[i])
+                            if np.isnan(r_est):
+                                r_est = 0.0
+                            self.rho[i] = self.rho[i] + self.rho_lr * (r_est - self.rho[i])
+                            self.rho[i] = np.clip(self.rho[i], -0.3, 0.3)
+                        except Exception as e:
+                            # If rho learning fails for this neighbor, skip update
+                            print(f"Warning: Rho update failed for neighbor {i} (Agent {self.unique_id}, Step {self.model.steps}): {type(e).__name__}. Keeping previous rho value.")
+                            continue
+                except Exception as e:
+                    # If computing own belief fails, skip entire rho update for this step
+                    print(f"Warning: Could not compute own belief for rho update (Agent {self.unique_id}, Step {self.model.steps}): {type(e).__name__}. Skipping rho update.")
+                    pass
+            elif self.rho_update_rule == "landmarks_corr":
+                X_soc, y_soc, neighbor_ids = self._gather_social_info()
+                for i, (_x_soc, _y_soc) in enumerate(zip(X_soc, y_soc), start=1):
+                    try:
+                        # Stack unique coordinates from both agents
+                        X_landmarks = _x_soc
 
-                    # Clip to prevent numerical instability
-                    self.rho[i] = np.clip(self.rho[i], -0.5, 0.5)
+                        # Compare beliefs ONLY at these landmarks
+                        # My belief at landmarks
+                        my_mean, my_std = gp_base_generalization(
+                            X_priv, y_priv, X_landmarks,
+                            RBF(length_scale=self.length_scale_private),
+                            self.observation_noise_private,
+                            self.model.rng.__getstate__()
+                        )
+
+                        # Neighbor's belief at landmarks
+                        neighbor_mean, neighbor_std = gp_base_generalization(
+                            _x_soc, _y_soc, X_landmarks,
+                            RBF(length_scale=self.length_scale_social),
+                            self.observation_noise_social,
+                            self.model.rng.__getstate__()
+                        )
+
+                        # Robust Weighted Correlation
+                        # We weight the correlation by how "known" the area is.
+                        # If both variances are high (unknown territory), weight is low.
+                        r_est = robust_weighted_correlation(
+                            my_mean, neighbor_mean,
+                            my_std, neighbor_std
+                        )
+
+                        if np.isnan(r_est):
+                            r_est = 0.0
+
+                        self.rho[i] =  self.rho[i] + self.rho_lr * (r_est - self.rho[i])
+
+                        # Clip to prevent numerical instability
+                        self.rho[i] = np.clip(self.rho[i], -0.5, 0.5)
+
+                    except Exception as e:
+                        # If rho learning fails for this neighbor, skip update
+                        print(f"Warning: Rho update failed for neighbor {i} (Agent {self.unique_id}, Step {self.model.steps}): {type(e).__name__}. Keeping previous rho value.")
+                        continue
 
             # if self.model_type == "SG-ICM":
             #     # Update trust estimates \hat{\rho}^j based on new social observations
@@ -720,23 +751,37 @@ class SocialGPAgent(CellAgent):
             #     rho_vec = self.rho
 
             X_soc, y_soc, neighbor_ids = self._gather_social_info()
-            logits = social_generalization_icm(
-                X_priv,
-                y_priv,
-                X_soc,
-                y_soc,
-                self.meshgrid_flatten,
-                length_scale_private=self.length_scale_private,
-                length_scale_social=self.length_scale_social,
-                observation_noise_private=self.observation_noise_private,
-                observation_noise_social=self.observation_noise_social,
-                beta=self.beta_private,
-                rho=self.rho,
-                tau=self.tau,
-                random_state=self.model.rng.__getstate__(),
-                model=self.model_type.split("-")[1],
-                subtract_max_value=True
-            )
+            try:
+                logits = social_generalization_icm(
+                    X_priv,
+                    y_priv,
+                    X_soc,
+                    y_soc,
+                    self.meshgrid_flatten,
+                    length_scale_private=self.length_scale_private,
+                    length_scale_social=self.length_scale_social,
+                    observation_noise_private=self.observation_noise_private,
+                    observation_noise_social=self.observation_noise_social,
+                    beta=self.beta_private,
+                    rho=self.rho,
+                    tau=self.tau,
+                    random_state=self.model.rng.__getstate__(),
+                    model=self.model_type.split("-")[1],
+                    subtract_max_value=True
+                )
+            except Exception as e:
+                # If SG-ICM fails, fall back to asocial generalization
+                print(f"Warning: SG-ICM failed (Agent {self.unique_id}, Step {self.model.steps}): {type(e).__name__}. Falling back to asocial.")
+                logits = asocial_generalization(
+                    X_priv,
+                    y_priv,
+                    self.meshgrid_flatten,
+                    length_scale=self.length_scale_private,
+                    observation_noise=self.observation_noise_private,
+                    beta=self.beta_private,
+                    tau=self.tau,
+                    random_state=self.model.rng.__getstate__()
+                )
         elif "SG" in self.model_type:
             X_soc, y_soc, _ = self._gather_social_info()
             logits = social_generalization(
