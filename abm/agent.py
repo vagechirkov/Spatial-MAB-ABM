@@ -734,7 +734,7 @@ class SocialGPAgent(CellAgent):
                         self.rho[i] =  self.rho[i] + self.rho_lr * (r_est - self.rho[i])
 
                         # Clip to prevent numerical instability
-                        self.rho[i] = np.clip(self.rho[i], -0.5, 0.5)
+                        self.rho[i] = np.clip(self.rho[i], -0.6, 0.6)
 
                     except Exception as e:
                         # If rho learning fails for this neighbor, skip update
