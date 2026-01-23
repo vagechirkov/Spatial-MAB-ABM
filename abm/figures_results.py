@@ -116,6 +116,22 @@ def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
     ru_rho_histories = clean_history_labels(ru_rho_histories)
     ru_multiround_histories = clean_history_labels(ru_multiround_histories)
 
+    # Detect max steps per condition to confirm the mismatch source
+    print("Debug: Max steps per condition in Multiround Data:")
+    print(ru_multiround_results.groupby('condition_label')['Step'].max())
+
+    # Ensure all conditions in multiround data match the step count of the target SCALE condition.
+    if "SCALE" in ru_multiround_results["condition_label"].values:
+        target_steps = ru_multiround_results[ru_multiround_results["condition_label"] == "SCALE"]["Step"].max()
+
+        # Truncate any condition that has more steps than SCALE
+        mask = ru_multiround_results["Step"] <= target_steps
+        n_dropped = len(ru_multiround_results) - mask.sum()
+
+        if n_dropped > 0:
+            print(f"Warning: Dropping {n_dropped} rows from multiround data that exceed Step {target_steps} (likely from mixed previous runs).")
+            ru_multiround_results = ru_multiround_results[mask]
+
     return ru_results, ru_rho_histories, ru_multiround_results, ru_multiround_histories, output_dir
 
 ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_012606", "results_multiround_20260122")
@@ -148,7 +164,7 @@ def plot_reward_composite(df, output_path):
     ax.set_ylabel("Reward")
     ax.set_xlabel("Step")
 
-    ax_ins = ax.inset_axes([0.7, 0.1, 0.25, 0.35])
+    ax_ins = ax.inset_axes([0.7, 0.05, 0.25, 0.35])
 
     # Get last step per seed per condition
     group_cols = ["seed", "condition_label"]
@@ -392,8 +408,6 @@ def plot_multiround_learning_overlay(df, output_path):
     df_bases = df[df["condition_label"].isin(baselines)].copy()
     df_scale = df[df["condition_label"] == target_cond].copy()
 
-    if df_scale.empty: return
-
     fig, ax = plt.subplots(figsize=(10, 6))
 
     # 2. Plot Baselines (Aggregated across all rounds/seeds)
@@ -512,18 +526,6 @@ def plot_multiround_improvement(df, output_path):
 plot_multiround_improvement(mr_res, output_dir / "fig5_multiround_improvement.svg")
 
 def plot_multiround_learning_overlay2(df, output_path):
-    """
-    Fig 7: Alternative Multi-round view.
-    X-axis: Step (0..max_step in a round).
-    Main Lines:
-      - Dashed averages for Baselines (AS, SCALE calibrated).
-      - Gradient lines for SCALE condition (Round 1..N).
-    Inset:
-      - Evolution of Cumulative Reward over Rounds for SCALE.
-      - Horizontal reference lines for Baselines.
-    """
-    if df.empty: return
-
     # 1. Setup Data
     target_cond = "SCALE"
     baselines = ["AS", "SCALE calibrated"]
@@ -531,8 +533,6 @@ def plot_multiround_learning_overlay2(df, output_path):
     # Filter
     df_bases = df[df["condition_label"].isin(baselines)].copy()
     df_scale = df[df["condition_label"] == target_cond].copy()
-
-    if df_scale.empty: return
 
     fig, ax = plt.subplots(figsize=(10, 6))
 
@@ -575,12 +575,11 @@ def plot_multiround_learning_overlay2(df, output_path):
             color=cmap[i],
             linewidth=2,
             zorder=3,
-            clip_on=False  # Ensure the start at step 0 is not clipped
         )
 
     # 4. Inset: Final Cumulative Reward vs Round
     # Position: [x, y, width, height] relative to parent axes (Bottom Right)
-    ax_ins = ax.inset_axes([0.55, 0.1, 0.4, 0.35])
+    ax_ins = ax.inset_axes([0.55, 0.1, 0.3, 0.35])
 
     # Prepare Data for Inset (Last step of each round per seed)
     idx_max = df.groupby(["seed", "Round", "condition_label"])["Step"].idxmax()
@@ -598,7 +597,8 @@ def plot_multiround_learning_overlay2(df, output_path):
         errorbar=('ci', 95),
         capsize=0.15,
         # scale=0.7,
-        ax=ax_ins
+        ax=ax_ins,
+
     )
 
     # Plot Baseline References (Horizontal lines)
