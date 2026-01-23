@@ -62,6 +62,10 @@ palette = {
 
 rho_colors = plt.cm.viridis(np.linspace(0.2, 0.9, 3))
 
+def _select_sg_agent(df):
+    plot_df = df.copy()
+    return plot_df[(plot_df["model_type"] == "SG-ICM") | (plot_df["model_type"] == "SG")].copy()
+
 def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
     # Paths (using those provided in the prompt)
     rho_update_results_path = Path(rho_update_folder)
@@ -73,10 +77,12 @@ def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
     # Load Single Round
     ru_rho_histories = np.load(rho_update_results_path / "rho_histories.npy", allow_pickle=True)
     ru_results = pd.read_csv(rho_update_results_path / "results.csv")
+    ru_results = _select_sg_agent(ru_results)
 
     # Load Multi Round
     ru_multiround_histories = np.load(rho_update_multiround_results_path / "rho_histories.npy", allow_pickle=True)
     ru_multiround_results = pd.read_csv(rho_update_multiround_results_path / "results.csv")
+    ru_multiround_results = _select_sg_agent(ru_multiround_results)
 
     # 2. Clean Labels in DataFrames
     ru_results['condition_label'] = ru_results['condition_label'].map(label_mapping).fillna(ru_results['condition_label'])
@@ -112,8 +118,8 @@ def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
 
     return ru_results, ru_rho_histories, ru_multiround_results, ru_multiround_histories, output_dir
 
-ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_012606", "results_multiround_20260122")
-# ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_155845", "results_multiround_20260123_155907")
+# ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_012606", "results_multiround_20260122")
+ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_155845", "results_multiround_20260123_155907")
 
 def plot_reward_composite(df, output_path):
     """
@@ -270,7 +276,7 @@ def plot_rho_estimation_single(rho_histories, output_path):
 
     ax.set_ylabel("Estimated $\\rho$")
     ax.set_xlabel("Step")
-    ax.set_ylim(-0.6, 0.6)
+    ax.set_ylim(-0.61, 0.61)
 
     # Legend
     # Moved to upper right to avoid overlap (lines occupy -0.6 to 0.6)
