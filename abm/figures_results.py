@@ -168,8 +168,8 @@ def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
 
     return ru_results, ru_rho_histories, ru_multiround_results, ru_multiround_histories, output_dir
 
-# ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_012606", "results_multiround_20260123_012816")
-ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_155845", "results_multiround_20260123_155907")
+ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_012606", "results_multiround_20260123_012816")
+# ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_155845", "results_multiround_20260123_155907")
 
 def plot_reward_composite(df, output_path):
     """
