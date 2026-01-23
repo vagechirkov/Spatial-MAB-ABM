@@ -579,7 +579,7 @@ def plot_multiround_learning_overlay2(df, output_path):
     df_bases = df[df["condition_label"].isin(baselines)].copy()
     df_scale = df[df["condition_label"] == target_cond].copy()
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(8, 6))
 
     # 2. Plot Baselines (Aggregated across all rounds/seeds)
     # This gives a single 'mean' curve per baseline condition
@@ -755,7 +755,7 @@ def plot_multiround_rho_continuous(histories, output_path):
     steps = np.arange(min_len)
     true_rhos = [0.6, 0.0, -0.6]
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    fig, ax = plt.subplots(figsize=(8, 6))
 
     for i in range(3):
         idx = i + 1
