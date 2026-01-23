@@ -154,6 +154,7 @@ def plot_reward_composite(df, output_path):
         y="cumulative_reward",
         order=available_conditions,
         hue="condition_label",
+        palette=palette,
         legend=False,
         errorbar=('ci', 95),
         linestyle='none',
