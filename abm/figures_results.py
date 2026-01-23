@@ -5,6 +5,7 @@ import pandas as pd
 from pathlib import Path
 from matplotlib.lines import Line2D
 
+# Set font sizes and style
 plt.rcParams.update({
     'font.size': 14,
     'axes.labelsize': 16,
@@ -19,16 +20,70 @@ plt.rcParams.update({
     'legend.frameon': False
 })
 
-tol_bright = [
-    '#4477AA',  # blue
-    '#EE6677',  # red
-    '#228833',  # green
-    '#CCBB44',  # yellow
-    '#66CCEE',  # cyan
-    '#AA3377',  # purple
-    '#BBBBBB',  # grey
+# Define the Tol Bright palette colors individually for custom mapping
+# Blue: #4477AA, Red: #EE6677, Green: #228833, Yellow: #CCBB44
+# Grey: #BBBBBB, Purple: #AA3377, Cyan: #66CCEE
+
+# Define the strictly requested order
+hue_order = [
+    'AS',
+    'SG calibrated',
+    'SG flipped',
+    'SCALE calibrated',
+    'SCALE flipped',
+    'SCALE'
 ]
 
+# --- Nested Model Structure Palette ---
+# 3 Main Families: AS (Grey), SG (Blue), SCALE (Red)
+c_as = '#555555'      # Dark Grey for high visibility baseline
+c_sg = '#4477AA'      # Tol Blue
+c_scale = '#EE6677'   # Tol Red (High contrast for the main model)
+
+palette = {
+    "AS": c_as,
+    "SG calibrated": c_sg,
+    "SG flipped": c_sg,
+    "SCALE calibrated": c_scale,
+    "SCALE flipped": c_scale,
+    "SCALE": c_scale
+}
+
+# Line Styles: Learning=Solid, Calibrated=Dashed, Flipped=Dotted
+# Using seaborn dash tuples: "" (solid), (2, 2) (dashed), (1, 1) (dotted)
+styles_dict = {
+    "AS": "",
+    "SG calibrated": (2, 2),
+    "SG flipped": (1, 1),
+    "SCALE calibrated": (2, 2),
+    "SCALE flipped": (1, 1),
+    "SCALE": ""
+}
+
+# Line Widths: Make SCALE Learning stand out (Thick)
+sizes_dict = {
+    "AS": 2.5,
+    "SG calibrated": 2.0,
+    "SG flipped": 2.0,
+    "SCALE calibrated": 2.0,
+    "SCALE flipped": 2.0,
+    "SCALE": 4.0
+}
+
+# Markers for pointplots (consistent symbols)
+markers_dict = {
+    "AS": "o",
+    "SG calibrated": "s",  # Square
+    "SG flipped": "^",     # Triangle
+    "SCALE calibrated": "s",
+    "SCALE flipped": "^",
+    "SCALE": "D"           # Diamond
+}
+
+# Rho Colors (Viridis discrete) - Unchanged
+rho_colors = plt.cm.viridis(np.linspace(0.2, 0.9, 3))
+
+# Label Mapping
 label_mapping = {
     "AS": "AS",
     "SG-ICM\ncalibrated": "SCALE calibrated",
@@ -36,31 +91,10 @@ label_mapping = {
     "SG-ICM\nlearning rho": "SCALE",
     "SG calibrated\n(0.01, 20, 20)": "SG calibrated",
     "SG flipped\n(20 0.01 0.01)": "SG flipped",
-    # Handle potential variations from multiround script
     "SG-ICM calibrated": "SCALE calibrated",
     "SG-ICM learning rho": "SCALE",
-    "landmarks_corr": "SCALE" # Internal key sometimes used
+    "landmarks_corr": "SCALE"
 }
-
-hue_order = [
-    'AS',
-    'SG calibrated',
-    'SCALE calibrated',
-    'SCALE',
-    'SG flipped',
-    'SCALE flipped'
-]
-
-palette = {
-    "AS": tol_bright[3],
-    "SCALE calibrated": tol_bright[0],
-    "SCALE flipped": tol_bright[1],
-    "SCALE": tol_bright[2],
-    "SG calibrated": tol_bright[4],
-    "SG flipped": tol_bright[5]
-}
-
-rho_colors = plt.cm.viridis(np.linspace(0.2, 0.9, 3))
 
 def _select_sg_agent(df):
     plot_df = df.copy()
@@ -134,8 +168,8 @@ def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
 
     return ru_results, ru_rho_histories, ru_multiround_results, ru_multiround_histories, output_dir
 
-ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_012606", "results_multiround_20260123_012816")
-# ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_155845", "results_multiround_20260123_155907")
+# ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_012606", "results_multiround_20260123_012816")
+ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_155845", "results_multiround_20260123_155907")
 
 def plot_reward_composite(df, output_path):
     """
@@ -154,10 +188,15 @@ def plot_reward_composite(df, output_path):
         x="Step",
         y="reward",
         hue="condition_label",
+        style="condition_label",
+        size="condition_label",
         hue_order=available_conditions,
+        style_order=available_conditions,
+        size_order=available_conditions,
         palette=palette,
+        dashes=styles_dict,
+        sizes=sizes_dict,
         errorbar="ci",
-        linewidth=2.5,
         ax=ax,
         legend=False,
     )
@@ -175,11 +214,10 @@ def plot_reward_composite(df, output_path):
         x="condition_label",
         y="cumulative_reward",
         order=available_conditions,
-        hue="condition_label",
         palette=palette,
-        legend=False,
+        markers=[markers_dict[c] for c in available_conditions],
         errorbar=('ci', 95),
-        linestyle='none',
+        join=False,
         capsize=0.1,
         ax=ax_ins,
         # markersize=0.7
@@ -224,10 +262,15 @@ def plot_exploration_distance(df, output_path):
         x="Step",
         y="last_choice_distance_private",
         hue="condition_label",
+        style="condition_label",
+        size="condition_label",
         hue_order=available_conditions,
+        style_order=available_conditions,
+        size_order=available_conditions,
         palette=palette,
+        dashes=styles_dict,
+        sizes=sizes_dict,
         errorbar="ci",
-        linewidth=2.5,
         ax=ax
     )
 
@@ -329,7 +372,7 @@ def plot_multiround_reward_continuous(df, output_path):
         palette=gray_palette,
         estimator='mean',
         errorbar=None,
-        linewidth=1.5,
+        linewidth=1.0,
         legend=False,
         ax=ax,
         zorder=1
@@ -350,10 +393,15 @@ def plot_multiround_reward_continuous(df, output_path):
             x="GlobalStep",
             y="reward",
             hue="condition_label",
+            style="condition_label",
+            size="condition_label",
             hue_order=available_conditions,
+            style_order=available_conditions,
+            size_order=available_conditions,
             palette=palette,
+            dashes=styles_dict,
+            sizes=sizes_dict,
             errorbar="ci",
-            linewidth=2,
             ax=ax,
             legend=show_legend,
             zorder=2
@@ -432,22 +480,19 @@ def plot_multiround_learning_overlay(df, output_path):
     unique_rounds = sorted(df_scale["Round"].unique())
     n_rounds = len(unique_rounds)
 
-    # Create a gradient from light green to dark green (SCALE's color is #228833)
-    # We skip the very first lightest colors to ensure visibility
-    cmap = sns.light_palette("#228833", n_colors=n_rounds + 3)[3:]
+    # Create a RED gradient for SCALE (c_scale = #EE6677)
+    # Start light, go to full color
+    cmap = sns.light_palette(c_scale, n_colors=n_rounds + 3)[3:]
 
     for i, r in enumerate(unique_rounds):
-        # Filter for this round
         dfr = df_scale[df_scale["Round"] == r]
-
-        # We calculate mean per step for the line (averaging over seeds)
         mean_r = dfr.groupby("Step")["reward"].mean()
 
         ax.plot(
             mean_r.index,
             mean_r.values,
             color=cmap[i],
-            linewidth=2,
+            linewidth=2.5, # Slightly thicker
             zorder=3,
             clip_on=False
         )
@@ -538,43 +583,41 @@ def plot_multiround_learning_overlay2(df, output_path):
 
     # 2. Plot Baselines (Aggregated across all rounds/seeds)
     # This gives a single 'mean' curve per baseline condition
-    sns.lineplot(
-        data=df_bases,
-        x="Step",
-        y="reward",
-        hue="condition_label",
-        palette=palette,
-        style="condition_label",
-        dashes=True,
-        linewidth=2.5,
-        alpha=0.7,
-        errorbar=None,
-        ax=ax,
-        zorder=2,
-        legend=False
-    )
+    for base in baselines:
+        if base in df_bases["condition_label"].unique():
+            dat = df_bases[df_bases["condition_label"] == base]
+            sns.lineplot(
+                data=dat,
+                x="Step",
+                y="reward",
+                color=palette[base],
+                linestyle='--', # Force dashed for baseline representation here
+                linewidth=2.5,
+                alpha=0.7,
+                errorbar=None,
+                ax=ax,
+                zorder=2
+            )
 
     # 3. Plot SCALE Rounds with Gradient
     unique_rounds = sorted(df_scale["Round"].unique())
     n_rounds = len(unique_rounds)
 
-    # Create a gradient from light green to dark green (SCALE's color is #228833)
-    # We skip the very first lightest colors to ensure visibility
-    cmap = sns.light_palette("#228833", n_colors=n_rounds + 3)[3:]
+    # Create a RED gradient for SCALE (c_scale = #EE6677)
+    # Start light, go to full color
+    cmap = sns.light_palette(c_scale, n_colors=n_rounds + 3)[3:]
 
     for i, r in enumerate(unique_rounds):
-        # Filter for this round
         dfr = df_scale[df_scale["Round"] == r]
-
-        # We calculate mean per step for the line (averaging over seeds)
         mean_r = dfr.groupby("Step")["reward"].mean()
 
         ax.plot(
             mean_r.index,
             mean_r.values,
             color=cmap[i],
-            linewidth=2,
+            linewidth=2.5, # Slightly thicker
             zorder=3,
+            clip_on=False
         )
 
     # 4. Inset: Final Cumulative Reward vs Round
@@ -591,8 +634,8 @@ def plot_multiround_learning_overlay2(df, output_path):
         data=scale_trend_df,
         x="Round",
         y="cumulative_reward",
-        color=palette[target_cond],
-        markers='o',
+        color=c_scale,
+        markers='D',
         linestyles='-',
         errorbar=('ci', 95),
         capsize=0.15,
