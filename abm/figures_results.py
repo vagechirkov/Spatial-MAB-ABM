@@ -1,11 +1,10 @@
-# %%
 import numpy as np
 import matplotlib.pylab as plt
 import seaborn as sns
 import pandas as pd
 from pathlib import Path
 from matplotlib.lines import Line2D
-# %%
+
 plt.rcParams.update({
     'font.size': 14,
     'axes.labelsize': 16,
@@ -62,7 +61,7 @@ palette = {
 }
 
 rho_colors = plt.cm.viridis(np.linspace(0.2, 0.9, 3))
-# %%
+
 def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
     # Paths (using those provided in the prompt)
     rho_update_results_path = Path(rho_update_folder)
@@ -79,15 +78,43 @@ def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
     ru_multiround_histories = np.load(rho_update_multiround_results_path / "rho_histories.npy", allow_pickle=True)
     ru_multiround_results = pd.read_csv(rho_update_multiround_results_path / "results.csv")
 
-    # Clean Labels in DataFrames
+    # 2. Clean Labels in DataFrames
     ru_results['condition_label'] = ru_results['condition_label'].map(label_mapping).fillna(ru_results['condition_label'])
-
     ru_multiround_results['condition_label'] = ru_multiround_results['condition_label'].map(label_mapping).fillna(ru_multiround_results['condition_label'])
+
+    # 3. Clean Labels in History Objects (Numpy Arrays)
+    def clean_history_labels(hist_array):
+        cleaned_list = []
+        for h in hist_array:
+            # Handle structured array/object or dict
+            if isinstance(h, dict):
+                item = h.copy()
+                raw_cond = item['condition']
+            else:
+                # Convert object to dict to ensure mutability and consistency
+                item = {
+                    'condition': h.condition,
+                    'rho_history': h.rho_history,
+                    'seed': getattr(h, 'seed', None),
+                    'round': getattr(h, 'round', None)
+                }
+                raw_cond = h.condition
+
+            # Apply mapping
+            if raw_cond in label_mapping:
+                item['condition'] = label_mapping[raw_cond]
+
+            cleaned_list.append(item)
+        return np.array(cleaned_list) # Return as array of dicts
+
+    ru_rho_histories = clean_history_labels(ru_rho_histories)
+    ru_multiround_histories = clean_history_labels(ru_multiround_histories)
 
     return ru_results, ru_rho_histories, ru_multiround_results, ru_multiround_histories, output_dir
 
 ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_012606", "results_multiround_20260122")
-# %%
+# ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_155845", "results_multiround_20260123_155907")
+
 def plot_reward_composite(df, output_path):
     """
     Fig 1: Reward Curve with Inset for Final Cumulative Reward
@@ -115,7 +142,7 @@ def plot_reward_composite(df, output_path):
     ax.set_ylabel("Reward")
     ax.set_xlabel("Step")
 
-    ax_ins = ax.inset_axes([0.7, 0.01, 0.25, 0.35])
+    ax_ins = ax.inset_axes([0.7, 0.1, 0.25, 0.35])
 
     # Get last step per seed per condition
     group_cols = ["seed", "condition_label"]
@@ -154,12 +181,12 @@ def plot_reward_composite(df, output_path):
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.show()
+    plt.close()
     print(f"Saved {output_path}")
 
 # plot_reward_composite(ru_res, output_dir / "fig1_reward_composite.png")
 plot_reward_composite(ru_res, output_dir / "fig1_reward_composite.svg")
-# %%
+
 def plot_exploration_distance(df, output_path):
     plot_df = df.copy()
     # Remove step 0 or 1 if distance is zero/undefined usually
@@ -167,7 +194,7 @@ def plot_exploration_distance(df, output_path):
 
     available_conditions = [c for c in hue_order if c in plot_df['condition_label'].unique()]
 
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(10, 6))
 
     sns.lineplot(
         data=plot_df,
@@ -187,12 +214,11 @@ def plot_exploration_distance(df, output_path):
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.show()
     plt.close()
     print(f"Saved {output_path}")
 
 plot_exploration_distance(ru_res, output_dir / "fig2_exploration_distance.svg")
-# %%
+
 def plot_rho_estimation_single(rho_histories, output_path):
     target_keys = ["landmarks_corr", "SCALE"]
 
@@ -251,12 +277,11 @@ def plot_rho_estimation_single(rho_histories, output_path):
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.show()
     plt.close()
     print(f"Saved {output_path}")
 
 plot_rho_estimation_single(ru_hist, output_dir / "fig3_rho_estimation_single.svg")
-# %%
+
 def plot_multiround_reward_continuous(df, output_path):
     plot_df = df.copy()
 
@@ -346,12 +371,11 @@ def plot_multiround_reward_continuous(df, output_path):
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.show()
     plt.close()
     print(f"Saved {output_path}")
 
 plot_multiround_reward_continuous(mr_res, output_dir / "fig4_multiround_reward_continuous.svg")
-# %%
+
 def plot_multiround_learning_overlay(df, output_path):
     # 1. Setup Data
     target_cond = "SCALE"
@@ -440,12 +464,11 @@ def plot_multiround_learning_overlay(df, output_path):
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.show()
     plt.close()
     print(f"Saved {output_path}")
 
 plot_multiround_learning_overlay(mr_res, output_dir / "fig7_multiround_overlay.svg")
-# %%
+
 def plot_multiround_improvement(df, output_path):
     plot_df = df.copy()
 
@@ -476,13 +499,22 @@ def plot_multiround_improvement(df, output_path):
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.show()
     plt.close()
     print(f"Saved {output_path}")
 
 plot_multiround_improvement(mr_res, output_dir / "fig5_multiround_improvement.svg")
-# %%
+
 def plot_multiround_learning_overlay2(df, output_path):
+    """
+    Fig 7: Alternative Multi-round view.
+    X-axis: Step (0..max_step in a round).
+    Main Lines:
+      - Dashed averages for Baselines (AS, SCALE calibrated).
+      - Gradient lines for SCALE condition (Round 1..N).
+    Inset:
+      - Evolution of Cumulative Reward over Rounds for SCALE.
+      - Horizontal reference lines for Baselines.
+    """
     if df.empty: return
 
     # 1. Setup Data
@@ -547,16 +579,18 @@ def plot_multiround_learning_overlay2(df, output_path):
     idx_max = df.groupby(["seed", "Round", "condition_label"])["Step"].idxmax()
     final_df = df.loc[idx_max]
 
-    # Plot SCALE trend (Improvement over rounds)
+    # Plot SCALE trend (Improvement over rounds) using pointplot (catplot style)
     scale_trend_df = final_df[final_df["condition_label"] == target_cond]
-    sns.lineplot(
+    sns.pointplot(
         data=scale_trend_df,
         x="Round",
         y="cumulative_reward",
         color=palette[target_cond],
-        marker='o',
-        linewidth=2,
+        markers='o',
+        linestyles='-',
         errorbar=('ci', 95),
+        capsize=0.15,
+        # scale=0.7,
         ax=ax_ins
     )
 
@@ -573,6 +607,8 @@ def plot_multiround_learning_overlay2(df, output_path):
     ax_ins.set_ylabel("", fontsize=10)
     ax_ins.tick_params(labelsize=9)
     # Set integer ticks for Rounds
+    # For pointplot, the x-axis is categorical (0, 1, 2...), so regular formatting usually works well,
+    # but ensuring integer locator helps if it tries to interpolate.
     ax_ins.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
     ax_ins.patch.set_alpha(0.8) # Semi-transparent background
 
@@ -612,12 +648,11 @@ def plot_multiround_learning_overlay2(df, output_path):
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.show()
     plt.close()
     print(f"Saved {output_path}")
 
 plot_multiround_learning_overlay2(mr_res, output_dir / "fig7_multiround_overlay2.svg")
-# %%
+
 def plot_multiround_rho_continuous(histories, output_path):
     # Filter for SCALE/landmarks_corr
     target_keys = ["landmarks_corr", "SCALE"]
@@ -725,9 +760,8 @@ def plot_multiround_rho_continuous(histories, output_path):
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.show()
     plt.close()
     print(f"Saved {output_path}")
 
 plot_multiround_rho_continuous(mr_hist, output_dir / "fig6_multiround_rho_continuous.svg")
-# %%
+
