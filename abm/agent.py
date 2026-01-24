@@ -77,6 +77,7 @@ def social_generalization(
     tau: float,
     random_state,
     subtract_max_value: bool = False,
+    return_predict: bool = False,
 ) -> np.ndarray:
     """Original SG model from Witt et al., 2024."""
     assert len(X_obs_private) > 0
@@ -114,7 +115,10 @@ def social_generalization(
         value_ucb -= np.max(value_ucb)
     logits = value_ucb / tau
     logits = np.clip(logits, -40, 40)  # avoid overflow in exp
-    return np.exp(logits)  # soft-max logits (unnormalised)
+    if not return_predict:
+        return np.exp(logits)  # soft-max logits (unnormalised)
+    else:
+        return np.exp(logits), gp_mean, gp_std
 
 
 def value_shaping(
@@ -267,6 +271,23 @@ def social_generalization_icm(
         logits = np.clip(logits, -40, 40)  # avoid overflow in exp
         return np.exp(logits)
     else:
+        # make a prediction for private output channel only
+        X_star_priv = np.hstack([X_predict, np.zeros((len(X_predict), 1))])
+        gp_mean_p, gp_std_p = gp_base_generalization(
+            X_all,
+            Y_all.ravel(),
+            X_star_priv,
+            kernel,
+            observation_noise,
+            random_state,
+        )
+
+        ucb = gp_mean_p.reshape(-1, 1) + beta * gp_std_p.reshape(-1, 1)
+        if subtract_max_value:
+            ucb -= np.max(ucb)
+        logits = ucb / tau
+        logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+
         mean_list = []
         std_list = []
         for i in range(len(X_obs_social) + 1):
@@ -282,7 +303,7 @@ def social_generalization_icm(
             )
             mean_list.append(gp_mean_p)
             std_list.append(gp_std_p)
-        return mean_list, std_list
+        return np.exp(logits), mean_list, std_list
 
 
 class SocialGPAgent(CellAgent):
