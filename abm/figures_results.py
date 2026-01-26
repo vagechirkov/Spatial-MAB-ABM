@@ -28,10 +28,11 @@ plt.rcParams.update({
 hue_order = [
     'AS',
     'SG calibrated',
+    'SG fixed',
     'SG flipped',
     'SCALE calibrated',
-    'SCALE flipped',
-    'SCALE'
+    'SCALE',
+    'SCALE flipped'
 ]
 
 # --- Nested Model Structure Palette ---
@@ -43,6 +44,7 @@ c_scale = '#EE6677'   # Tol Red (High contrast for the main model)
 palette = {
     "AS": c_as,
     "SG calibrated": c_sg,
+    "SG fixed": c_sg,
     "SG flipped": c_sg,
     "SCALE calibrated": c_scale,
     "SCALE flipped": c_scale,
@@ -54,6 +56,7 @@ palette = {
 styles_dict = {
     "AS": "",
     "SG calibrated": (2, 2),
+    "SG fixed": "",
     "SG flipped": (1, 1),
     "SCALE calibrated": (2, 2),
     "SCALE flipped": (1, 1),
@@ -64,6 +67,7 @@ styles_dict = {
 sizes_dict = {
     "AS": 2.5,
     "SG calibrated": 2.0,
+    "SG fixed": 2.0,
     "SG flipped": 2.0,
     "SCALE calibrated": 2.0,
     "SCALE flipped": 2.0,
@@ -74,6 +78,7 @@ sizes_dict = {
 markers_dict = {
     "AS": "o",
     "SG calibrated": "s",  # Square
+    "SG fixed": "d",  # Square
     "SG flipped": "^",     # Triangle
     "SCALE calibrated": "s",
     "SCALE flipped": "^",
@@ -87,12 +92,13 @@ rho_colors = plt.cm.viridis(np.linspace(0.2, 0.9, 3))
 label_mapping = {
     "AS": "AS",
     "SG-ICM\ncalibrated": "SCALE calibrated",
+    "SG fixed\n(3.0, 3.0, 3.0)": "SG fixed",
     "SG-ICM\nflipped": "SCALE flipped",
     "SG-ICM\nlearning rho": "SCALE",
     "SG calibrated\n(0.01, 20, 20)": "SG calibrated",
     "SG flipped\n(20 0.01 0.01)": "SG flipped",
-    "SG-ICM calibrated": "SCALE calibrated",
     "SG-ICM learning rho": "SCALE",
+    "SG-ICM calibrated": "SCALE calibrated",
     "landmarks_corr": "SCALE"
 }
 
@@ -168,8 +174,8 @@ def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
 
     return ru_results, ru_rho_histories, ru_multiround_results, ru_multiround_histories, output_dir
 
-ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_012606", "results_multiround_20260123_211101")
-# ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260123_155845", "results_multiround_20260123_155907")
+ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260126_132448", "results_multiround_20260123_211101")
+# ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260126_192457", "results_multiround_20260123_155907")
 
 def plot_reward_composite(df, output_path):
     """
