@@ -102,6 +102,15 @@ def setup_conditions():
                 "rho": rho_zero,
             }
         },
+        "sg_fixed": {
+            "label": "SG fixed\n(3.0, 3.0, 3.0)",
+            "params": {
+                "model_type": "SG",
+                "rho_update_rule": None,
+                "observation_noise_social": [3.0, 3.0, 3.0],
+                "rho": rho_zero,
+            }
+        },
         "sg_flipped": {
             "label": "SG flipped\n(20 0.01 0.01)",
             "params": {
