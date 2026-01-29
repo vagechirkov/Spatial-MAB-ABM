@@ -68,7 +68,7 @@ def setup_conditions():
         "landmarks_corr": {
             "label": "SG-ICM\nlearning rho",
             "params": {
-                "rho_update_rule": "landmarks_corr",
+                "rho_update_rule": "landmarks_corr_2",
                 "rho": rho_zero,
                 "model_type": "SG-ICM",
                 "rho_update_kwargs": {"rho_lr": 0.05},
