@@ -1,6 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from sklearn.gaussian_process.kernels import Kernel, RBF
+from statsmodels.stats.weightstats import DescrStatsW
 
 
 def plot_summary(results):
@@ -17,6 +18,36 @@ def plot_summary(results):
 
     plt.tight_layout()
     plt.show()
+
+
+def robust_weighted_correlation(x, y, x_err, y_err):
+    """
+    Calculates Pearson correlation weighted by inverse error variance.
+    Robust to high noise because noisy points get near-zero weight.
+    """
+    if len(x) < 2:
+        return 0.0
+
+    if np.std(x) < 1e-6 or np.std(y) < 1e-6:
+        return 0.0
+
+    # Calculate weights: High error = Low weight
+    # We combine x_err and y_err into a single "unreliability" metric
+    weights = 1.0 / (x_err**2 + y_err**2 + 1e-9)
+
+    # Normalize weights (optional but good for stability)
+    w_sum = weights.sum()
+    if w_sum == 0:
+        return 0.0
+    weights /= w_sum
+
+    # Stack data
+    data = np.stack([x, y], axis=1)
+
+    # Calculate weighted correlation
+    weighted_stats = DescrStatsW(data, weights=weights)
+
+    return weighted_stats.corrcoef[0, 1]
 
 
 class ICMKernel(Kernel):

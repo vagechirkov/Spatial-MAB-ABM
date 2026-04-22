@@ -3,7 +3,8 @@ from mesa.discrete_space import CellAgent
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, Kernel
 
-from utils import ICMKernel, LMCKernel, _stack_targets, _stack_tasks
+from rho_update import RhoKalmanUpdater
+from utils import ICMKernel, LMCKernel, _stack_targets, _stack_tasks, robust_weighted_correlation
 
 
 def gp_base_generalization(
@@ -15,15 +16,30 @@ def gp_base_generalization(
     rng,
 ):
     """Fit a zero-mean GP and return μ, σ on the prediction grid."""
-    gpr = GaussianProcessRegressor(
-        kernel=kernel,
-        alpha=observation_noise,
-        random_state=rng,
-        optimizer=None,
-        normalize_y=False,
-    )
-    gpr.fit(X_obs, y_obs)
-    return gpr.predict(X_predict, return_std=True)
+    try:
+        gpr = GaussianProcessRegressor(
+            kernel=kernel,
+            alpha=observation_noise,
+            random_state=rng,
+            optimizer=None,
+            normalize_y=False,
+        )
+        gpr.fit(X_obs, y_obs)
+        mu, sigma = gpr.predict(X_predict, return_std=True)
+
+        # Check for invalid values
+        if np.any(np.isnan(mu)) or np.any(np.isnan(sigma)) or np.any(sigma < 0):
+            raise ValueError("GP prediction returned invalid values")
+
+        return mu, sigma
+
+    except (np.linalg.LinAlgError, ValueError) as e:
+        # Degenerate covariance matrix or invalid predictions
+        # Return safe fallback: prior mean (0) with high uncertainty
+        print(f"Warning: GP fitting failed ({type(e).__name__}: {str(e)}). Using fallback predictions.")
+        mu = np.zeros(len(X_predict))
+        sigma = np.ones(len(X_predict)) * 0.5  # Return moderate uncertainty
+        return mu, sigma
 
 def asocial_generalization(
     X_obs: np.ndarray,
@@ -56,23 +72,33 @@ def social_generalization(
     X_predict: np.ndarray,
     length_scale: float,
     observation_noise_private: float,
-    observation_noise_social: float,
+    observation_noise_social: float | list,
     beta: float,
     tau: float,
     random_state,
     subtract_max_value: bool = False,
+    return_predict: bool = False,
 ) -> np.ndarray:
     """Original SG model from Witt et al., 2024."""
     assert len(X_obs_private) > 0
     assert len(X_obs_social) > 0
 
-    observation_noise = np.hstack(
-        [np.ones(len(y_obs_private)) * observation_noise_private]
-        + [
-            np.ones(len(y_soc)) * observation_noise_social + observation_noise_private
-            for y_soc in y_obs_social
-        ]
-    )
+    if not isinstance(observation_noise_social, float):
+        observation_noise = np.hstack(
+            [np.ones(len(y_obs_private)) * observation_noise_private]
+            + [
+                np.ones(len(y_soc)) * observation_noise_social[i] + observation_noise_private
+                for i, y_soc in enumerate(y_obs_social)
+            ]
+        )
+    else:
+        observation_noise = np.hstack(
+            [np.ones(len(y_obs_private)) * observation_noise_private]
+            + [
+                np.ones(len(y_soc)) * observation_noise_social + observation_noise_private
+                for y_soc in y_obs_social
+            ]
+        )
     X_obs = np.vstack([X_obs_private] + X_obs_social)
     y_obs = np.vstack([y_obs_private] + y_obs_social)
 
@@ -89,7 +115,10 @@ def social_generalization(
         value_ucb -= np.max(value_ucb)
     logits = value_ucb / tau
     logits = np.clip(logits, -40, 40)  # avoid overflow in exp
-    return np.exp(logits)  # soft-max logits (unnormalised)
+    if not return_predict:
+        return np.exp(logits)  # soft-max logits (unnormalised)
+    else:
+        return np.exp(logits), gp_mean, gp_std
 
 
 def value_shaping(
@@ -202,6 +231,7 @@ def social_generalization_icm(
     random_state,
     model="ICM",
     subtract_max_value=False,
+    return_full_predictions=False,
 ):
     X_all = _stack_tasks(X_obs_private, X_obs_social)
     Y_all = _stack_targets(y_obs_private, y_obs_social)
@@ -222,23 +252,58 @@ def social_generalization_icm(
         + [np.ones(len(y_soc)) * observation_noise_social for y_soc in y_obs_social]
     )
 
-    # make a prediction for private output channel only
-    X_star_priv = np.hstack([X_predict, np.zeros((len(X_predict), 1))])
-    gp_mean_p, gp_std_p = gp_base_generalization(
-        X_all,
-        Y_all.ravel(),
-        X_star_priv,
-        kernel,
-        observation_noise,
-        random_state,
-    )
+    if not return_full_predictions:
+        # make a prediction for private output channel only
+        X_star_priv = np.hstack([X_predict, np.zeros((len(X_predict), 1))])
+        gp_mean_p, gp_std_p = gp_base_generalization(
+            X_all,
+            Y_all.ravel(),
+            X_star_priv,
+            kernel,
+            observation_noise,
+            random_state,
+        )
 
-    ucb = gp_mean_p.reshape(-1, 1) + beta * gp_std_p.reshape(-1, 1)
-    if subtract_max_value:
-        ucb -= np.max(ucb)
-    logits = ucb / tau
-    logits = np.clip(logits, -40, 40)  # avoid overflow in exp
-    return np.exp(logits)
+        ucb = gp_mean_p.reshape(-1, 1) + beta * gp_std_p.reshape(-1, 1)
+        if subtract_max_value:
+            ucb -= np.max(ucb)
+        logits = ucb / tau
+        logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+        return np.exp(logits)
+    else:
+        # make a prediction for private output channel only
+        X_star_priv = np.hstack([X_predict, np.zeros((len(X_predict), 1))])
+        gp_mean_p, gp_std_p = gp_base_generalization(
+            X_all,
+            Y_all.ravel(),
+            X_star_priv,
+            kernel,
+            observation_noise,
+            random_state,
+        )
+
+        ucb = gp_mean_p.reshape(-1, 1) + beta * gp_std_p.reshape(-1, 1)
+        if subtract_max_value:
+            ucb -= np.max(ucb)
+        logits = ucb / tau
+        logits = np.clip(logits, -40, 40)  # avoid overflow in exp
+
+        mean_list = []
+        std_list = []
+        for i in range(len(X_obs_social) + 1):
+            # make a prediction for private output channel only
+            X_star_priv = np.hstack([X_predict, np.ones((len(X_predict), 1)) * i])
+            gp_mean_p, gp_std_p = gp_base_generalization(
+                X_all,
+                Y_all.ravel(),
+                X_star_priv,
+                kernel,
+                observation_noise,
+                random_state,
+            )
+            mean_list.append(gp_mean_p)
+            std_list.append(gp_std_p)
+        return np.exp(logits), mean_list, std_list
 
 
 class SocialGPAgent(CellAgent):
@@ -253,11 +318,17 @@ class SocialGPAgent(CellAgent):
         length_scale_private: float,
         length_scale_social: float,
         observation_noise_private: float,
-        observation_noise_social: float,
+        observation_noise_social: float | list ,
         beta_private: float,
         beta_social: float,
         tau: float,
         rho: float,
+        rho_update_rule: str | None = None,
+        rho_update_basis: str = "private",
+        rho_update_sigma_zeta: float = 1e-4,
+        rho_update_rho_max: float = 1.0,
+        rho_update_init: float = 0.0,
+        rho_update_kwargs: dict | None = None,
     ):
         super().__init__(model)
 
@@ -275,13 +346,24 @@ class SocialGPAgent(CellAgent):
         self.length_scale_social = length_scale_social
 
         self.observation_noise_private = observation_noise_private
-        self.observation_noise_social = observation_noise_social
+        self.observation_noise_social = np.array(observation_noise_social).flatten()
 
         self.beta_private = beta_private
         self.beta_social = beta_social
 
         self.tau = tau
         self.rho = np.array(rho).flatten()
+        self.rho_update_rule = rho_update_rule
+        self.rho_update_basis = rho_update_basis
+        self.rho_update_sigma_zeta = rho_update_sigma_zeta
+        self.rho_update_rho_max = rho_update_rho_max
+        self.rho_update_init = rho_update_init
+        self.rho_update_kwargs = rho_update_kwargs or {}
+        self.rho_lr = rho_update_kwargs['rho_lr'] if (rho_update_kwargs is not None) and (
+                    'rho_lr' in rho_update_kwargs.keys()) else 0.1
+
+        self._rho_updater = None
+        self._social_obs_index: dict[int, int] = {}
 
         # memory buffers
         self.X_observations: list[tuple[int, int]] = []
@@ -300,6 +382,9 @@ class SocialGPAgent(CellAgent):
             self.meshgrid_flatten
         )
         self.policy = self.uniform_probs.copy()
+
+        self.gp_mean = []
+        self.gp_std = []
 
     @property
     def last_choice(self) -> tuple[int, int]:
@@ -322,7 +407,7 @@ class SocialGPAgent(CellAgent):
 
     @property
     def last_choice_distance_social(self) -> float:
-        X_soc, _ = self._gather_social_info()
+        X_soc, _, _ = self._gather_social_info()
         if len(X_soc) < 1 or len(X_soc[0]) < 1:
             return 0.0
         social_last_choices = np.array([_x_soc[-1] for _x_soc in X_soc])
@@ -345,7 +430,7 @@ class SocialGPAgent(CellAgent):
 
     @property
     def nearest_choice_distance_social(self) -> float:
-        X_soc, _ = self._gather_social_info()
+        X_soc, _, _ = self._gather_social_info()
         if len(X_soc) < 1 or len(X_soc[0]) < 1:
             return 0.0
         social_choices = np.vstack(X_soc)
@@ -354,7 +439,7 @@ class SocialGPAgent(CellAgent):
 
     @property
     def avg_choice_distance_social(self) -> float:
-        X_soc, _ = self._gather_social_info()
+        X_soc, _, _ = self._gather_social_info()
         if len(X_soc) < 1 or len(X_soc[0]) < 1:
             return 0.0
         social_choices = np.vstack(X_soc)
@@ -379,20 +464,198 @@ class SocialGPAgent(CellAgent):
 
         return -np.log(self.policy[self.meshgrid_dict[self.X_observations[-1]]])
 
-    def _gather_social_info(self) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    def _gather_social_info(
+        self,
+    ) -> tuple[list[np.ndarray], list[np.ndarray], list[int]]:
         neighbours = list(self.model.grid[self.cell.coordinate].neighborhood)
         #TODO: more this to the network generation script
         # neighbours = neighbours[: self.model.attention_budget]  # w = 4
 
-        X_soc, y_soc = [], []
+        X_soc, y_soc, neighbor_ids = [], [], []
         # observe only the choices before the last step
-        history_horizon = self.model.steps - 1
+        history_horizon = max(self.model.steps - 1, 0)
 
         for neighbour in neighbours:
             neighbor_agent = neighbour.agents[0]
-            X_soc.append(np.array(neighbor_agent.X_observations[:history_horizon]))
-            y_soc.append(np.array(neighbor_agent.y_observations[:history_horizon]).reshape(-1, 1))
-        return X_soc, y_soc
+            neighbor_ids.append(neighbor_agent.unique_id)
+            X_soc.append(
+                np.array(neighbor_agent.X_observations[:history_horizon]).reshape(-1, 2)
+            )
+            y_soc.append(
+                np.array(neighbor_agent.y_observations[:history_horizon]).reshape(-1, 1)
+            )
+        return X_soc, y_soc, neighbor_ids
+
+    def _init_rho_updater(self, neighbor_ids: list[int]) -> None:
+        r"""
+        Initialize the trust learning updater with adaptive (Kalman-like) learning rate.
+
+        \alpha_t^j = v(x_t^j) / (v(x_t^j) + \sigma^2_\epsilon + \sigma^2_\zeta)
+        """
+        if self._rho_updater is not None:
+            return
+        if self.rho_update_rule is None:
+            return
+        if self.model_type != "SG-ICM":
+            return
+
+        if self.rho_update_rule == "rho_kalman":
+            self._rho_updater = RhoKalmanUpdater(
+                rho_init=self.rho_update_init,
+                rho_max=self.rho_update_rho_max,
+                sigma_zeta=self.rho_update_sigma_zeta,
+                observation_noise=self.observation_noise_social,
+                **self.rho_update_kwargs,
+            )
+        else:
+            raise ValueError(f"Unknown rho_update_rule '{self.rho_update_rule}'. Only 'rho_kalman' is supported.")
+
+        self._rho_updater.ensure_neighbors(neighbor_ids)
+
+    def _get_rho_vector(self, neighbor_ids: list[int]) -> np.ndarray:
+        if self._rho_updater is None:
+            return self.rho
+        return self._rho_updater.get_rho_vector(neighbor_ids)
+
+    def _predict_update_private(
+        self,
+        X_query: np.ndarray,
+        X_priv: np.ndarray,
+        y_priv: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if len(X_priv) < 1:
+            return np.zeros(len(X_query)), np.zeros(len(X_query))
+
+        gp_mean, gp_std = gp_base_generalization(
+            X_priv,
+            y_priv,
+            X_query,
+            RBF(length_scale=self.length_scale_private),
+            np.ones(len(X_priv)) * self.observation_noise_private,
+            self.model.rng.__getstate__(),
+        )
+        return gp_mean.ravel(), (gp_std**2).ravel()
+
+    def _predict_update_icm(
+        self,
+        X_query: np.ndarray,
+        X_priv: np.ndarray,
+        y_priv: np.ndarray,
+        X_soc_prefix: list[np.ndarray],
+        y_soc_prefix: list[np.ndarray],
+        rho_vec: np.ndarray,
+        query_id: int = 0,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        if len(X_priv) < 1:
+            return np.zeros(len(X_query)), np.zeros(len(X_query))
+
+        X_all = _stack_tasks(X_priv, X_soc_prefix)
+        Y_all = _stack_targets(y_priv, y_soc_prefix)
+        kernel = ICMKernel(length_scale=self.length_scale_private, rho=rho_vec)
+        observation_noise = np.hstack(
+            [np.ones(len(y_priv)) * self.observation_noise_private]
+            + [
+                np.ones(len(y_soc)) * self.observation_noise_social
+                for y_soc in y_soc_prefix
+            ]
+        )
+
+        # Query predictions for the agent with the "query_id"
+        # X_star_priv = np.hstack([X_query, np.ones((len(X_query), 1)) * query_id])
+        X_star_priv = np.hstack([X_query, np.zeros((len(X_query), 1))])
+        gp_mean, gp_std = gp_base_generalization(
+            X_all,
+            Y_all.ravel(),
+            X_star_priv,
+            kernel,
+            observation_noise,
+            self.model.rng.__getstate__(),
+        )
+        return gp_mean.ravel(), (gp_std**2).ravel()
+
+    def _update_rho(
+        self,
+        X_priv: np.ndarray,
+        y_priv: np.ndarray,
+        X_soc: list[np.ndarray],
+        y_soc: list[np.ndarray],
+        neighbor_ids: list[int],
+    ) -> None:
+        r"""
+        Update trust (\hat{\rho}^j) for each neighbor based on new social observations.
+
+        Trust learning process (from manuscript):
+        1. For each new observation (x_t^j, r_t^j) from neighbor j:
+           a. Predict m(x_t^j) using current GP (either private-only or full ICM)
+           b. Compute correlation evidence: z_t^j = \tilde{m}(x_t^j) · \tilde{r}_t^j
+           c. Update trust: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
+
+        Two prediction bases (rho_update_basis):
+        - "private": Use only agent's private GP for predictions m(x_t^j)
+        - "full": Use full SG-ICM with current \hat{\rho} estimates
+        """
+        if not neighbor_ids:
+            return
+
+        self._init_rho_updater(neighbor_ids)
+        if self._rho_updater is None:
+            return
+
+        # Identify new observations from each neighbor since last update
+        new_points = []
+        new_rewards = []
+        update_neighbor_ids = []
+        update_counts = []
+        X_soc_prefix, y_soc_prefix = [], []
+
+        for idx, neighbor_id in enumerate(neighbor_ids):
+            start = self._social_obs_index.get(neighbor_id, 0)
+            total = len(X_soc[idx])
+
+            # Store observations seen before (for "full" prediction basis)
+            X_soc_prefix.append(X_soc[idx][:start])
+            y_soc_prefix.append(y_soc[idx][:start])
+
+            # Collect new observations since last update
+            if start < total:
+                coords = X_soc[idx][start:total]
+                rewards = y_soc[idx][start:total].reshape(-1)
+                new_points.append(coords)
+                new_rewards.append(rewards)
+                update_neighbor_ids.append(neighbor_id)
+                update_counts.append(len(coords))
+
+            self._social_obs_index[neighbor_id] = total
+
+        if not new_points:
+            return
+
+        X_query = np.vstack(new_points)
+
+        # Generate predictions m(x_t^j) for computing correlation evidence z_t^j
+        if self.rho_update_basis == "private":
+            # Predict using only private GP (ignores social info)
+            mean_pred, var_pred = self._predict_update_private(X_query, X_priv, y_priv)
+        elif self.rho_update_basis == "full":
+            # Predict using full SG-ICM with current \hat{\rho} estimates
+            rho_vec = self._get_rho_vector(neighbor_ids)
+            mean_pred, var_pred = self._predict_update_icm(
+                X_query, X_priv, y_priv, X_soc_prefix, y_soc_prefix, rho_vec
+            )
+        else:
+            raise ValueError(f"Unknown rho_update_basis '{self.rho_update_basis}'")
+
+        # Split predictions back to per-neighbor lists
+        mean_list, var_list, reward_list = [], [], []
+        offset = 0
+        for count, rewards in zip(update_counts, new_rewards):
+            mean_list.append(mean_pred[offset : offset + count])
+            var_list.append(var_pred[offset : offset + count])
+            reward_list.append(rewards)
+            offset += count
+
+        # Perform trust learning update: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
+        self._rho_updater.update(update_neighbor_ids, mean_list, var_list, reward_list)
 
     def _add_noise_to_reward(self, reward: float):
         added_noise = 0
@@ -413,27 +676,152 @@ class SocialGPAgent(CellAgent):
         y_priv = np.array(self.y_observations).reshape(-1, 1)
 
         if self.model_type in ["SG-ICM", "SG-LCM"]:
-            X_soc, y_soc = self._gather_social_info()
-            logits = social_generalization_icm(
-                X_priv,
-                y_priv,
-                X_soc,
-                y_soc,
-                self.meshgrid_flatten,
-                length_scale_private=self.length_scale_private,
-                length_scale_social=self.length_scale_social,
-                observation_noise_private=self.observation_noise_private,
-                observation_noise_social=self.observation_noise_social,
-                beta=self.beta_private,
-                rho=self.rho,
-                tau=self.tau,
-                random_state=self.model.rng.__getstate__(),
-                model=self.model_type.split("-")[1],
-                subtract_max_value=True
-            )
-        elif "SG" in self.model_type:
+            if self.rho_update_rule == "rho_kalman":
+                raise NotImplementedError
+            elif self.rho_update_rule == "full_belief_corr":
+                X_soc, y_soc, neighbor_ids = self._gather_social_info()
+                try:
+                    # My independent belief
+                    my_mean, my_std = gp_base_generalization(
+                        X_priv, y_priv, self.meshgrid_flatten,
+                        RBF(length_scale=self.length_scale_private),
+                        self.observation_noise_private,
+                        self.model.rng.__getstate__()
+                    )
 
-            X_soc, y_soc = self._gather_social_info()
+                    for i, (x_soc, y_soc) in enumerate(zip(X_soc, y_soc), start=1):
+                        try:
+                            # Neighbor's independent belief
+                            neighbor_mean, neighbor_std = gp_base_generalization(
+                                x_soc, y_soc, self.meshgrid_flatten,
+                                RBF(length_scale=self.length_scale_social),
+                                self.observation_noise_social,
+                                self.model.rng.__getstate__()
+                            )
+
+                            # # 2. Correlate the signal-to-noise maps
+                            # # (add epsilon to std to avoid division by zero in empty areas)
+                            # my_signal = np.divide(my_mean, my_std + 1e-6)
+                            # neighbor_signal = np.divide(neighbor_mean, neighbor_std + 1e-6)
+                            #
+                            # r_est = np.corrcoef(my_signal, neighbor_signal)[0, 1]
+
+                            r_est = robust_weighted_correlation(my_mean, neighbor_mean, my_std, neighbor_std)
+
+                            if np.isnan(r_est):
+                                r_est = 0.0
+                            self.rho[i] = self.rho[i] + self.rho_lr * (r_est - self.rho[i])
+                            self.rho[i] = np.clip(self.rho[i], -0.3, 0.3)
+                        except Exception as e:
+                            # If rho learning fails for this neighbor, skip update
+                            print(f"Warning: Rho update failed for neighbor {i} (Agent {self.unique_id}, Step {self.model.steps}): {type(e).__name__}. Keeping previous rho value.")
+                            continue
+                except Exception as e:
+                    # If computing own belief fails, skip entire rho update for this step
+                    print(f"Warning: Could not compute own belief for rho update (Agent {self.unique_id}, Step {self.model.steps}): {type(e).__name__}. Skipping rho update.")
+                    pass
+            elif self.rho_update_rule == "landmarks_corr":
+                X_soc, y_soc, neighbor_ids = self._gather_social_info()
+                for i, (_x_soc, _y_soc) in enumerate(zip(X_soc, y_soc), start=1):
+                    try:
+                        # Stack unique coordinates from both agents
+                        X_landmarks = _x_soc
+
+                        # Compare beliefs ONLY at these landmarks
+                        # My belief at landmarks
+                        my_mean, my_std = gp_base_generalization(
+                            X_priv, y_priv, X_landmarks,
+                            RBF(length_scale=self.length_scale_private),
+                            self.observation_noise_private,
+                            self.model.rng.__getstate__()
+                        )
+
+                        # Neighbor's belief at landmarks
+                        neighbor_mean, neighbor_std = gp_base_generalization(
+                            _x_soc, _y_soc, X_landmarks,
+                            RBF(length_scale=self.length_scale_social),
+                            self.observation_noise_social,
+                            self.model.rng.__getstate__()
+                        )
+
+                        # Robust Weighted Correlation
+                        # We weight the correlation by how "known" the area is.
+                        # If both variances are high (unknown territory), weight is low.
+                        r_est = robust_weighted_correlation(
+                            my_mean, neighbor_mean,
+                            my_std, neighbor_std
+                        )
+
+                        if np.isnan(r_est):
+                            r_est = 0.0
+
+                        self.rho[i] =  self.rho[i] + self.rho_lr * (r_est - self.rho[i])
+
+                        # Clip to prevent numerical instability
+                        self.rho[i] = np.clip(self.rho[i], -0.6, 0.6)
+
+                    except Exception as e:
+                        # If rho learning fails for this neighbor, skip update
+                        print(f"Warning: Rho update failed for neighbor {i} (Agent {self.unique_id}, Step {self.model.steps}): {type(e).__name__}. Keeping previous rho value.")
+                        continue
+
+            elif self.rho_update_rule == "landmarks_corr_2":
+                X_soc, y_soc, neighbor_ids = self._gather_social_info()
+                for i, (_x_soc, _y_soc) in enumerate(zip(X_soc, y_soc), start=1):
+                    if self.gp_mean and self.gp_std:
+                        X_landmarks = _x_soc
+                        # select indicies from that correspond ot social info from self.gp_mean, self.gp_std
+                        my_mean = np.array([self.gp_mean[0][self.meshgrid_dict[tuple(c)]] for c in X_landmarks])
+                        my_std = np.array([self.gp_std[0][self.meshgrid_dict[tuple(c)]] for c in X_landmarks])
+
+                        r_est = robust_weighted_correlation(
+                            my_mean, _y_soc.flatten(),
+                            my_std, np.zeros_like(my_std),
+                        )
+                        #
+                        if np.isnan(r_est):
+                            r_est = 0.0
+
+                        self.rho[i] =  self.rho[i] + self.rho_lr * (r_est - self.rho[i])
+
+                        # Clip to prevent numerical instability
+                        self.rho[i] = np.clip(self.rho[i], -0.6, 0.6)
+
+            X_soc, y_soc, neighbor_ids = self._gather_social_info()
+            try:
+                logits, self.gp_mean, self.gp_std = social_generalization_icm(
+                    X_priv,
+                    y_priv,
+                    X_soc,
+                    y_soc,
+                    self.meshgrid_flatten,
+                    length_scale_private=self.length_scale_private,
+                    length_scale_social=self.length_scale_social,
+                    observation_noise_private=self.observation_noise_private,
+                    observation_noise_social=self.observation_noise_social,
+                    beta=self.beta_private,
+                    rho=self.rho,
+                    tau=self.tau,
+                    random_state=self.model.rng.__getstate__(),
+                    model=self.model_type.split("-")[1],
+                    subtract_max_value=True,
+                    return_full_predictions=True,
+                )
+            except Exception as e:
+                # If SG-ICM fails, fall back to asocial generalization
+                print(f"Warning: SG-ICM failed (Agent {self.unique_id}, Step {self.model.steps}): {type(e).__name__}. Falling back to asocial.")
+                logits = asocial_generalization(
+                    X_priv,
+                    y_priv,
+                    self.meshgrid_flatten,
+                    length_scale=self.length_scale_private,
+                    observation_noise=self.observation_noise_private,
+                    beta=self.beta_private,
+                    tau=self.tau,
+                    random_state=self.model.rng.__getstate__()
+                )
+        elif "SG" in self.model_type:
+            X_soc, y_soc, _ = self._gather_social_info()
             logits = social_generalization(
                 X_priv,
                 y_priv,
@@ -449,7 +837,7 @@ class SocialGPAgent(CellAgent):
                 subtract_max_value=True
             )
         elif self.model_type in ["VS-N", "VS-F", "VS-CK"]:
-            X_soc, y_soc = self._gather_social_info()
+            X_soc, y_soc, _ = self._gather_social_info()
             logits = value_shaping(
                 X_priv,
                 y_priv,
