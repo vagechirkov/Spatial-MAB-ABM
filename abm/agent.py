@@ -383,6 +383,9 @@ class SocialGPAgent(CellAgent):
         )
         self.policy = self.uniform_probs.copy()
 
+        self.gp_mean = []
+        self.gp_std = []
+
     @property
     def last_choice(self) -> tuple[int, int]:
         return self.X_observations[-1]
@@ -762,18 +765,31 @@ class SocialGPAgent(CellAgent):
                         print(f"Warning: Rho update failed for neighbor {i} (Agent {self.unique_id}, Step {self.model.steps}): {type(e).__name__}. Keeping previous rho value.")
                         continue
 
-            # if self.model_type == "SG-ICM":
-            #     # Update trust estimates \hat{\rho}^j based on new social observations
-            #     # This implements: \hat{\rho}_{t+1}^j = \hat{\rho}_t^j + \alpha_t^j (z_t^j - \hat{\rho}_t^j)
-            #     # self._update_rho(X_priv, y_priv, X_soc, y_soc, neighbor_ids)
-            #     # Retrieve current trust estimates for use in ICM kernel
-            #     rho_vec = self._get_rho_vector(neighbor_ids)
-            # else:
-            #     rho_vec = self.rho
+            elif self.rho_update_rule == "landmarks_corr_2":
+                X_soc, y_soc, neighbor_ids = self._gather_social_info()
+                for i, (_x_soc, _y_soc) in enumerate(zip(X_soc, y_soc), start=1):
+                    if self.gp_mean and self.gp_std:
+                        X_landmarks = _x_soc
+                        # select indicies from that correspond ot social info from self.gp_mean, self.gp_std
+                        my_mean = np.array([self.gp_mean[0][self.meshgrid_dict[tuple(c)]] for c in X_landmarks])
+                        my_std = np.array([self.gp_std[0][self.meshgrid_dict[tuple(c)]] for c in X_landmarks])
+
+                        r_est = robust_weighted_correlation(
+                            my_mean, _y_soc.flatten(),
+                            my_std, np.zeros_like(my_std),
+                        )
+                        #
+                        if np.isnan(r_est):
+                            r_est = 0.0
+
+                        self.rho[i] =  self.rho[i] + self.rho_lr * (r_est - self.rho[i])
+
+                        # Clip to prevent numerical instability
+                        self.rho[i] = np.clip(self.rho[i], -0.6, 0.6)
 
             X_soc, y_soc, neighbor_ids = self._gather_social_info()
             try:
-                logits = social_generalization_icm(
+                logits, self.gp_mean, self.gp_std = social_generalization_icm(
                     X_priv,
                     y_priv,
                     X_soc,
@@ -788,7 +804,8 @@ class SocialGPAgent(CellAgent):
                     tau=self.tau,
                     random_state=self.model.rng.__getstate__(),
                     model=self.model_type.split("-")[1],
-                    subtract_max_value=True
+                    subtract_max_value=True,
+                    return_full_predictions=True,
                 )
             except Exception as e:
                 # If SG-ICM fails, fall back to asocial generalization
