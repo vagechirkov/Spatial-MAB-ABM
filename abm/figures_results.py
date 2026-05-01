@@ -797,7 +797,6 @@ def plot_multiround_rho_continuous(histories, output_path):
     # --- Axis Formatting (Matching Reward Plot) ---
 
     # Determine structure
-    steps_per_round = len(relevant[0]['rho_history'])
     total_rounds = min_len // steps_per_round
 
     # Cut space before 0
