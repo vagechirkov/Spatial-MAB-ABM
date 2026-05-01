@@ -316,3 +316,16 @@ abm/wandb
 abm/sbi-logs
 abm/sbi-simulations
 *.csv
+
+*.npy
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.svg
+*.tiff
+*.bmp
+*.ico
+*.gif
+nohup.out

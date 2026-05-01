@@ -724,42 +724,43 @@ def plot_multiround_learning_overlay2(df, output_path):
 
 plot_multiround_learning_overlay2(mr_res, output_dir / "fig7_multiround_overlay2.svg")
 
-def plot_multiround_rho_continuous(histories, output_path):
-    # Filter for SCALE/landmarks_corr
-    target_keys = ["landmarks_corr", "SCALE"]
-    relevant = []
 
-    # Normalize list of dicts vs loaded numpy array of objects
-    clean_histories = []
+def plot_multiround_rho_continuous(histories, output_path):
+    from collections import defaultdict
+    target_keys = {"landmarks_corr", "SCALE"}
+
+    # 1. Single-pass filtering and O(1) grouping via defaultdict
+    grouped_by_seed = defaultdict(list)
+    
     for h in histories:
-        if isinstance(h, dict):
-            clean_histories.append(h)
-        else:
-            # Handle numpy object
-            clean_histories.append({
-                'condition': h['condition'],
-                'rho_history': h['rho_history'],
-                'seed': h['seed'],
-                'round': h['round']
+        # Handle dict vs numpy object gracefully in one go
+        condition = h.get('condition') if isinstance(h, dict) else h['condition']
+        
+        if condition in target_keys:
+            seed = h.get('seed') if isinstance(h, dict) else h['seed']
+            rnd = h.get('round') if isinstance(h, dict) else h['round']
+            rho_hist = h.get('rho_history') if isinstance(h, dict) else h['rho_history']
+            
+            grouped_by_seed[seed].append({
+                'round': rnd,
+                'rho_history': rho_hist
             })
 
-    relevant = [h for h in clean_histories if h['condition'] in target_keys]
-
-    if not relevant:
-        print("No multi-round histories found for SCALE.")
+    if not grouped_by_seed:
+        print("No multi-round histories found for target keys.")
         return
 
-    # Stitch trajectories by seed
-    # Group by seed
-    seeds = set(h['seed'] for h in relevant)
+    # 2. Fast trajectory stitching
     stitched_trajectories = []
-
-    for s in seeds:
-        seed_hists = [h for h in relevant if h['seed'] == s]
+    steps_per_round = None
+    
+    for seed, seed_hists in grouped_by_seed.items():
         seed_hists.sort(key=lambda x: x['round'])
-
         arrays = [h['rho_history'] for h in seed_hists]
+
         if arrays:
+            if steps_per_round is None:
+                steps_per_round = len(arrays[0]) # Extract for plotting later
             stitched = np.concatenate(arrays, axis=0)
             stitched_trajectories.append(stitched)
 
