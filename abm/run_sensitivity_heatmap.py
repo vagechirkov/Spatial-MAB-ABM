@@ -20,6 +20,14 @@ Note on numerical warnings:
 
 import argparse
 import os
+
+# Disable multi-threading in BLAS/MKL to prevent oversubscription in worker processes
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
 import warnings
 from datetime import datetime
 
@@ -106,19 +114,37 @@ def _run_one_seed(env_seed, rho_lr_val, priv_noise_val, n_steps):
     return scale_rew - as_rew
 
 
-def run_heatmap_cell(rho_lr_val, priv_noise_val, n_envs, n_steps):
-    diffs = Parallel(n_jobs=-1, prefer="threads")(
-        delayed(_run_one_seed)(s, rho_lr_val, priv_noise_val, n_steps)
-        for s in range(n_envs)
-    )
-    return np.mean(diffs)
-
-
 def run_heatmap(n_envs, n_steps):
-    heatmap_data = np.zeros((len(PRIV_NOISE_GRID), len(RHO_LR_GRID)))
-    for i, pn in enumerate(tqdm(PRIV_NOISE_GRID, desc="private noise")):
+    """
+    Run the sensitivity heatmap simulations in parallel.
+    Uses process-based parallelization to avoid GIL and BLAS contention issues.
+    """
+    # Flatten the grid and seeds into a single list of tasks
+    tasks = []
+    for i, pn in enumerate(PRIV_NOISE_GRID):
         for j, lr in enumerate(RHO_LR_GRID):
-            heatmap_data[i, j] = run_heatmap_cell(lr, pn, n_envs, n_steps)
+            for s in range(n_envs):
+                tasks.append((s, lr, pn, i, j))
+
+    print(f"Starting {len(tasks)} simulations using {os.cpu_count()} processes...")
+
+    # Run in parallel using processes
+    results_flat = Parallel(n_jobs=-1, prefer="processes")(
+        delayed(_run_one_seed)(s, lr, pn, n_steps)
+        for s, lr, pn, i, j in tqdm(tasks, desc="Simulations")
+    )
+
+    # Reconstruct the heatmap data
+    heatmap_data = np.zeros((len(PRIV_NOISE_GRID), len(RHO_LR_GRID)))
+    # results_flat[idx] corresponds to tasks[idx]
+    # We need to average over n_envs for each (i, j)
+    
+    # Simple reshaping if we want to be more efficient
+    results_reshaped = np.array(results_flat).reshape(
+        len(PRIV_NOISE_GRID), len(RHO_LR_GRID), n_envs
+    )
+    heatmap_data = np.mean(results_reshaped, axis=2)
+    
     return heatmap_data
 
 
