@@ -37,8 +37,18 @@ poetry install
 source .venv/bin/activate
 ```
 
-Run Jupyter Lab
+
+## Code execution
 
 ```bash
-poetry run jupyter lab
+# 50000 envs takes 2-3 hours on 64 cores
+poetry run python abm/run_rho_update.py --n_envs 50000 --output_dir results_single_round
+# 50000 envs takes 2-3 hours on 64 cores
+poetry run python abm/run_rho_update_multiround.py --n_envs 50000 --output_dir results_multiround
+
+# figures are produced in figures/ folder
+poerty run python abm/figures_results.py
+
+# 50000 envs takes 2-3 hours on 64 cores
+poetry run python abm/run_sensitivity_heapmap.py --output_dir figures
 ```
