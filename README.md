@@ -32,8 +32,9 @@ poetry update
 Install dependencies (if the project already exists)
 
 ```bash
+poetry config virtualenvs.in-project true  # <- install venvirtural environment to .venv folder
 poetry install
-eval $(poetry env activate)
+source .venv/bin/activate
 ```
 
 Run Jupyter Lab

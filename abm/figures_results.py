@@ -27,12 +27,12 @@ plt.rcParams.update({
 # Define the strictly requested order
 hue_order = [
     'AS',
-    'SG calibrated',
+    'SG oracle',
     'SG fixed',
-    'SG flipped',
-    'SCALE calibrated',
+    'SG anti-oracle',
+    'SCALE oracle',
     'SCALE',
-    'SCALE flipped'
+    'SCALE anti-oracle'
 ]
 
 # --- Nested Model Structure Palette ---
@@ -43,46 +43,46 @@ c_scale = '#EE6677'   # Tol Red (High contrast for the main model)
 
 palette = {
     "AS": c_as,
-    "SG calibrated": c_sg,
+    "SG oracle": c_sg,
     "SG fixed": c_sg,
-    "SG flipped": c_sg,
-    "SCALE calibrated": c_scale,
-    "SCALE flipped": c_scale,
+    "SG anti-oracle": c_sg,
+    "SCALE oracle": c_scale,
+    "SCALE anti-oracle": c_scale,
     "SCALE": c_scale
 }
 
-# Line Styles: Learning=Solid, Calibrated=Dashed, Flipped=Dotted
+# Line Styles: Learning=Solid, Oracle=Dashed, Anti-oracle=Dotted
 # Using seaborn dash tuples: "" (solid), (2, 2) (dashed), (1, 1) (dotted)
 styles_dict = {
     "AS": "",
-    "SG calibrated": (2, 2),
+    "SG oracle": (2, 2),
     "SG fixed": "",
-    "SG flipped": (1, 1),
-    "SCALE calibrated": (2, 2),
-    "SCALE flipped": (1, 1),
+    "SG anti-oracle": (1, 1),
+    "SCALE oracle": (2, 2),
+    "SCALE anti-oracle": (1, 1),
     "SCALE": ""
 }
 
 # Line Widths: Make SCALE Learning stand out (Thick)
 sizes_dict = {
     "AS": 2.5,
-    "SG calibrated": 2.0,
+    "SG oracle": 2.0,
     "SG fixed": 2.0,
-    "SG flipped": 2.0,
-    "SCALE calibrated": 2.0,
-    "SCALE flipped": 2.0,
+    "SG anti-oracle": 2.0,
+    "SCALE oracle": 2.0,
+    "SCALE anti-oracle": 2.0,
     "SCALE": 4.0
 }
 
 # Markers for pointplots (consistent symbols)
 markers_dict = {
     "AS": "o",
-    "SG calibrated": "s",  # Square
-    "SG fixed": "d",  # Square
-    "SG flipped": "^",     # Triangle
-    "SCALE calibrated": "s",
-    "SCALE flipped": "^",
-    "SCALE": "D"           # Diamond
+    "SG oracle": "s",
+    "SG fixed": "d",
+    "SG anti-oracle": "^",
+    "SCALE oracle": "s",
+    "SCALE anti-oracle": "^",
+    "SCALE": "D"
 }
 
 # Rho Colors (Viridis discrete) - Unchanged
@@ -91,14 +91,14 @@ rho_colors = plt.cm.viridis(np.linspace(0.2, 0.9, 3))
 # Label Mapping
 label_mapping = {
     "AS": "AS",
-    "SG-ICM\ncalibrated": "SCALE calibrated",
+    "SG-ICM\ncalibrated": "SCALE oracle",
     "SG fixed\n(3.0, 3.0, 3.0)": "SG fixed",
-    "SG-ICM\nflipped": "SCALE flipped",
+    "SG-ICM\nflipped": "SCALE anti-oracle",
     "SG-ICM\nlearning rho": "SCALE",
-    "SG calibrated\n(0.01, 20, 20)": "SG calibrated",
-    "SG flipped\n(20 0.01 0.01)": "SG flipped",
+    "SG calibrated\n(0.01, 20, 20)": "SG oracle",
+    "SG flipped\n(20 0.01 0.01)": "SG anti-oracle",
     "SG-ICM learning rho": "SCALE",
-    "SG-ICM calibrated": "SCALE calibrated",
+    "SG-ICM calibrated": "SCALE oracle",
     "landmarks_corr": "SCALE"
 }
 
@@ -111,7 +111,7 @@ def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
     rho_update_results_path = Path(rho_update_folder)
     rho_update_multiround_results_path = Path(rho_update_multiround_folder)
 
-    output_dir = Path("final_figures")
+    output_dir = Path("final_figures_revision_04_2026")
     output_dir.mkdir(exist_ok=True)
 
     # Load Single Round
@@ -174,7 +174,7 @@ def load_and_process_data(rho_update_folder, rho_update_multiround_folder):
 
     return ru_results, ru_rho_histories, ru_multiround_results, ru_multiround_histories, output_dir
 
-ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260126_132448", "results_multiround_20260123_211101")
+ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260129_212526", "results_multiround_20260123_225704")
 # ru_res, ru_hist, mr_res, mr_hist, output_dir = load_and_process_data("results_20260126_192457", "results_multiround_20260123_155907")
 
 def plot_reward_composite(df, output_path):
@@ -282,7 +282,22 @@ def plot_exploration_distance(df, output_path):
 
     ax.set_ylabel("Exploration Distance")
     ax.set_xlabel("Step")
-    ax.legend(loc='upper right', title=None)
+
+    # Custom legend: linestyle + marker so it also encodes the panel a inset shapes
+    _ls_map = {"": '-', (2, 2): (0, (2, 2)), (1, 1): (0, (1, 1))}
+    legend_handles = [
+        Line2D(
+            [0], [0],
+            color=palette.get(c, 'gray'),
+            linestyle=_ls_map.get(styles_dict.get(c, ""), '-'),
+            linewidth=sizes_dict.get(c, 2.0),
+            marker=markers_dict.get(c, 'o'),
+            markersize=7,
+            label=c,
+        )
+        for c in available_conditions
+    ]
+    ax.legend(handles=legend_handles, loc='upper right', title=None)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -456,7 +471,7 @@ plot_multiround_reward_continuous(mr_res, output_dir / "fig4_multiround_reward_c
 def plot_multiround_learning_overlay(df, output_path):
     # 1. Setup Data
     target_cond = "SCALE"
-    baselines = ["AS", "SCALE calibrated"]
+    baselines = ["AS", "SCALE oracle"]
 
     # Filter
     df_bases = df[df["condition_label"].isin(baselines)].copy()
@@ -504,13 +519,13 @@ def plot_multiround_learning_overlay(df, output_path):
         )
 
     # 4. Custom Legend
-    # Order requested: SCALE calibrated -> SCALE Round N -> ... -> SCALE Round 1 -> AS
+    # Order requested: SCALE oracle -> SCALE Round N -> ... -> SCALE Round 1 -> AS
     handles = []
 
-    # 1. SCALE calibrated
-    if "SCALE calibrated" in baselines:
-        color = palette["SCALE calibrated"]
-        h_sc = Line2D([0], [0], color=color, linestyle='--', linewidth=2.5, label="SCALE calibrated (Avg)")
+    # 1. SCALE oracle
+    if "SCALE oracle" in baselines:
+        color = palette["SCALE oracle"]
+        h_sc = Line2D([0], [0], color=color, linestyle='--', linewidth=2.5, label="SCALE oracle (Avg)")
         handles.append(h_sc)
 
     # 2. SCALE Round N (Last)
@@ -579,7 +594,7 @@ plot_multiround_improvement(mr_res, output_dir / "fig5_multiround_improvement.sv
 def plot_multiround_learning_overlay2(df, output_path):
     # 1. Setup Data
     target_cond = "SCALE"
-    baselines = ["AS", "SCALE calibrated"]
+    baselines = ["AS", "SCALE oracle"]
 
     # Filter
     df_bases = df[df["condition_label"].isin(baselines)].copy()
@@ -669,13 +684,13 @@ def plot_multiround_learning_overlay2(df, output_path):
     ax_ins.patch.set_alpha(0.8) # Semi-transparent background
 
     # 5. Custom Legend (Moved to Upper Left)
-    # Order requested: SCALE calibrated -> SCALE Round N -> ... -> SCALE Round 1 -> AS
+    # Order requested: SCALE oracle -> SCALE Round N -> ... -> SCALE Round 1 -> AS
     handles = []
 
-    # 1. SCALE calibrated
-    if "SCALE calibrated" in baselines:
-        color = palette["SCALE calibrated"]
-        h_sc = Line2D([0], [0], color=color, linestyle='--', linewidth=2.5, label="SCALE calibrated (Avg)")
+    # 1. SCALE oracle
+    if "SCALE oracle" in baselines:
+        color = palette["SCALE oracle"]
+        h_sc = Line2D([0], [0], color=color, linestyle='--', linewidth=2.5, label="SCALE oracle (Avg)")
         handles.append(h_sc)
 
     # 2. SCALE Round N (Last)
@@ -709,42 +724,43 @@ def plot_multiround_learning_overlay2(df, output_path):
 
 plot_multiround_learning_overlay2(mr_res, output_dir / "fig7_multiround_overlay2.svg")
 
-def plot_multiround_rho_continuous(histories, output_path):
-    # Filter for SCALE/landmarks_corr
-    target_keys = ["landmarks_corr", "SCALE"]
-    relevant = []
 
-    # Normalize list of dicts vs loaded numpy array of objects
-    clean_histories = []
+def plot_multiround_rho_continuous(histories, output_path):
+    from collections import defaultdict
+    target_keys = {"landmarks_corr", "SCALE"}
+
+    # 1. Single-pass filtering and O(1) grouping via defaultdict
+    grouped_by_seed = defaultdict(list)
+    
     for h in histories:
-        if isinstance(h, dict):
-            clean_histories.append(h)
-        else:
-            # Handle numpy object
-            clean_histories.append({
-                'condition': h['condition'],
-                'rho_history': h['rho_history'],
-                'seed': h['seed'],
-                'round': h['round']
+        # Handle dict vs numpy object gracefully in one go
+        condition = h.get('condition') if isinstance(h, dict) else h['condition']
+        
+        if condition in target_keys:
+            seed = h.get('seed') if isinstance(h, dict) else h['seed']
+            rnd = h.get('round') if isinstance(h, dict) else h['round']
+            rho_hist = h.get('rho_history') if isinstance(h, dict) else h['rho_history']
+            
+            grouped_by_seed[seed].append({
+                'round': rnd,
+                'rho_history': rho_hist
             })
 
-    relevant = [h for h in clean_histories if h['condition'] in target_keys]
-
-    if not relevant:
-        print("No multi-round histories found for SCALE.")
+    if not grouped_by_seed:
+        print("No multi-round histories found for target keys.")
         return
 
-    # Stitch trajectories by seed
-    # Group by seed
-    seeds = set(h['seed'] for h in relevant)
+    # 2. Fast trajectory stitching
     stitched_trajectories = []
-
-    for s in seeds:
-        seed_hists = [h for h in relevant if h['seed'] == s]
+    steps_per_round = None
+    
+    for seed, seed_hists in grouped_by_seed.items():
         seed_hists.sort(key=lambda x: x['round'])
-
         arrays = [h['rho_history'] for h in seed_hists]
+
         if arrays:
+            if steps_per_round is None:
+                steps_per_round = len(arrays[0]) # Extract for plotting later
             stitched = np.concatenate(arrays, axis=0)
             stitched_trajectories.append(stitched)
 
@@ -781,7 +797,6 @@ def plot_multiround_rho_continuous(histories, output_path):
     # --- Axis Formatting (Matching Reward Plot) ---
 
     # Determine structure
-    steps_per_round = len(relevant[0]['rho_history'])
     total_rounds = min_len // steps_per_round
 
     # Cut space before 0
