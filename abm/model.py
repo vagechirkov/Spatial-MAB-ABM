@@ -79,10 +79,6 @@ class SocialGPModel(mesa.Model):
         observation_noise_social: float | list = 0.0001,  # variance
         rho: float | np.ndarray = 0.60,
         rho_update_rule: str | None = None,
-        rho_update_basis: str = "private",
-        rho_update_sigma_zeta: float = 1e-4,
-        rho_update_rho_max: float = 1.0,
-        rho_update_init: float = 0.0,
         rho_update_kwargs: dict | None = None,
         beta_private: float | None = 0.7,
         beta_social: float | None = 0.7,
@@ -219,10 +215,6 @@ class SocialGPModel(mesa.Model):
             tau=tau,
             rho=rho,
             rho_update_rule=rho_update_rule,
-            rho_update_basis=rho_update_basis,
-            rho_update_sigma_zeta=rho_update_sigma_zeta,
-            rho_update_rho_max=rho_update_rho_max,
-            rho_update_init=rho_update_init,
             rho_update_kwargs=rho_update_kwargs,
         )
 
@@ -250,4 +242,3 @@ class SocialGPModel(mesa.Model):
     def step(self):
         self.agents.do("step")
         self.datacollector.collect(self)
-
