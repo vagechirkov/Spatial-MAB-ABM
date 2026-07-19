@@ -79,10 +79,6 @@ class SocialGPModel(mesa.Model):
         observation_noise_social: float | list = 0.0001,  # variance
         rho: float | np.ndarray = 0.60,
         rho_update_rule: str | None = None,
-        rho_update_basis: str = "private",
-        rho_update_sigma_zeta: float = 1e-4,
-        rho_update_rho_max: float = 1.0,
-        rho_update_init: float = 0.0,
         rho_update_kwargs: dict | None = None,
         beta_private: float | None = 0.7,
         beta_social: float | None = 0.7,
@@ -219,10 +215,6 @@ class SocialGPModel(mesa.Model):
             tau=tau,
             rho=rho,
             rho_update_rule=rho_update_rule,
-            rho_update_basis=rho_update_basis,
-            rho_update_sigma_zeta=rho_update_sigma_zeta,
-            rho_update_rho_max=rho_update_rho_max,
-            rho_update_init=rho_update_init,
             rho_update_kwargs=rho_update_kwargs,
         )
 
@@ -250,96 +242,3 @@ class SocialGPModel(mesa.Model):
     def step(self):
         self.agents.do("step")
         self.datacollector.collect(self)
-
-
-if __name__ == "__main__":
-    import seaborn as sns
-    import matplotlib.pyplot as plt
-
-    # 1. If explicit maps are passed in (for testing the code)
-    n_agents = 5
-    grid_size = 11
-    # correlation matrix must include the parent + all children (n_agents + 1)
-    R = np.array([
-        [1.0, 0.0, -0.6, 0.6, 0.0],
-        [0.0, 1.0, 0.2, -0.3, 0.0],
-        [-0.6, 0.2, 1.0, 0.1, 0.0],
-        [0.6, -0.3, 0.1, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0, 1.0],
-    ])
-
-    parent, children = make_parent_and_children_cholesky2(
-        rng=None,
-        grid_size=grid_size,
-        n_children=n_agents,
-        length_scale=2.0,
-        corr_matrix=R,
-    )
-    m = SocialGPModel(
-        n=n_agents,
-        model_type="SG-ICM",
-        network_type="directed_one_to_four",
-        child_maps=[parent] + children,  # triggers the child_maps branch
-        rho=np.array([1.0, 0.0, -0.6, 0.6, 0.0])
-    )
-
-    # 2. if a full correlation matrix is provided, use the new generator
-    n_agents = 4
-    grid_size = 11
-    R = build_corr_matrix_option1()
-    # R = build_corr_matrix_option2(eps=0.2)
-    # R = build_corr_matrix_option3()
-    m = SocialGPModel(
-        n=n_agents,
-        model_type="SG-ICM",
-        network_type="directed_one_to_four",
-        corr_matrix=R,  # triggers the corr_matrix branch
-        tau_sampling=True,
-        # rho=R[0, :],
-        rho=np.array([1.0, 0.0, 0.0, 0.0]),
-        rho_update_rule="rho_kalman",
-    )
-
-    # 3. original scalar-correlation behavior
-    # m = SocialGPModel(n=5, model_type="SG-ICM", network_type='directed_one_to_four')
-
-    for _ in range(15):
-        m.step()
-
-    param_grid = {
-        "n": [5],
-        "model_type": ["SG-ICM"],  # "AS", "SG", "SG-ICM", "VS-F", "VS-CK"
-        "length_scale_private": [1.11],
-        "length_scale_social": [1.11],
-        "observation_noise_private": [0.0001],
-        "observation_noise_social":  [0.0001],
-        "beta_private": [0.33],
-        "beta_social":   [0.33],
-        "tau": [0.03],
-        "rho": [0.5],
-        "seed": list(range(20))
-    }
-
-    batch_results = mesa.batch_run(
-        SocialGPModel,
-        parameters=param_grid,
-        iterations=1,
-        max_steps=15,
-        number_processes=None,
-        data_collection_period=1,
-        display_progress=True,
-    )
-
-    batch_results = pd.DataFrame(batch_results)
-    batch_results.dropna(inplace=True)
-
-    batch_results['tau_str'] = [str(l) for l in batch_results['tau'].to_list()]
-
-    sns.lineplot(batch_results,
-                 x="Step",
-                 y="reward",
-                 hue="model_type"  # "observation_noise_social" # "model_type"
-                 )
-    plt.show()
-
-    batch_results.head()

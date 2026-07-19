@@ -80,18 +80,15 @@ def _run_one_seed(env_seed, rho_lr_val, priv_noise_val, n_steps):
         beta_sampling=True,
         length_scale_sampling=True,
         observation_noise_private=priv_noise_val,
-        rho_update_sigma_zeta=0.1,
         seed=env_seed,
     )
 
     m_scale = SocialGPModel(
         **common,
         model_type="SG-ICM",
-        rho_update_rule="landmarks_corr",
+        rho_update_rule="landmarks_corr_2",
         rho_update_kwargs={"rho_lr": rho_lr_val},
         rho=RHO_ZERO.copy(),
-        rho_update_init=0.0,
-        rho_update_basis="full",
     )
     for _ in range(n_steps):
         m_scale.step()
